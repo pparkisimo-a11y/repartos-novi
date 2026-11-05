@@ -1,0 +1,21 @@
+# Render Blueprint (documentación del servicio)
+# El servicio real se crea/actualiza vía la API de Render.
+services:
+  - type: web
+    name: repartos-novi
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm install && npx prisma db push && npm run build
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false # Supabase (pooler IPv4)
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_SOCKET_SAME_ORIGIN
+        value: "true"
+      - key: NODE_VERSION
+        value: "22"

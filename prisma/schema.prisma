@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Driver {
+  id        String       @id @default(cuid())
+  username  String       @unique
+  password  String
+  name      String
+  createdAt DateTime     @default(now())
+  restaurants Restaurant[]
+}
+
+model Restaurant {
+  id        String    @id @default(cuid())
+  name      String
+  username  String    @unique
+  password  String
+  address   String
+  lat       Float
+  lng       Float
+  createdAt DateTime  @default(now())
+  deliveries Delivery[]
+  convertedLeads Lead[] @relation("ConvertedLeads")
+
+  // The driver this restaurant is assigned to. Deliveries requested by this
+  // restaurant are routed (and notified) only to the assigned driver.
+  assignedDriverId String?
+  assignedDriver   Driver? @relation(fields: [assignedDriverId], references: [id])
+}
+
+model Lead {
+  id           String   @id @default(cuid())
+  restaurantName String
+  contactName  String?
+  phone        String?
+  message      String?
+  status       String   @default("PENDING") // PENDING | CONTACTED | CONVERTED | REJECTED
+  notes        String?
+  createdAt    DateTime @default(now())
+  contactedAt  DateTime?
+  convertedAt  DateTime?
+  convertedRestaurantId String?
+  convertedRestaurant   Restaurant? @relation("ConvertedLeads", fields: [convertedRestaurantId], references: [id])
+
+  @@index([status])
+}
+
+model Delivery {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  status       String     @default("PENDING") // PENDING | ACCEPTED | PICKED_UP | DELIVERED | REJECTED | CANCELLED
+  requestedAt  DateTime   @default(now())
+  acceptedAt   DateTime?
+  pickedUpAt   DateTime?
+  deliveredAt  DateTime?
+  rejectedAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId])
+  @@index([status])
+}

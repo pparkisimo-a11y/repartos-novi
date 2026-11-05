@@ -1,0 +1,455 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Bell,
+  CheckCircle2,
+  PackageCheck,
+  Bike,
+  Clock,
+  Loader2,
+  Store as StoreIcon,
+  ClipboardList,
+  History,
+  Search,
+} from 'lucide-react'
+import { useMemo } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { toast } from 'sonner'
+import { api } from '@/lib/api-client'
+import type { AppUser, DeliveryDTO } from '@/lib/types'
+import { StatusBadge } from '@/components/status-badge'
+import { AppShell, type NavItem } from '@/components/layout/app-shell'
+import { useSocket } from '@/hooks/use-socket'
+import { useNow } from '@/hooks/use-now'
+import {
+  formatTime,
+  formatDateTime,
+  formatDuration,
+  relativeTime,
+} from '@/lib/format'
+
+type View = 'inicio' | 'historial'
+
+export function RestaurantDashboard({
+  user,
+  onLogout,
+}: {
+  user: Extract<AppUser, { role: 'restaurant' }>
+  onLogout: () => void
+}) {
+  const qc = useQueryClient()
+  const { status, subscribe } = useSocket(user)
+  const [view, setView] = useState<View>('inicio')
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['deliveries', 'restaurant', 'active'],
+    queryFn: () => api.listDeliveries('active'),
+    refetchInterval: 15000,
+  })
+
+  const { data: allData } = useQuery({
+    queryKey: ['deliveries', 'restaurant', 'all'],
+    queryFn: () => api.listDeliveries(),
+    refetchInterval: 30000,
+  })
+
+  const active: DeliveryDTO | undefined = data?.deliveries[0]
+  const isActive = active && ['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(active.status)
+
+  useEffect(() => {
+    const onUpdate = (payload: unknown) => {
+      const d = payload as DeliveryDTO
+      qc.setQueryData(['deliveries', 'restaurant', 'active'], (old: { deliveries: DeliveryDTO[] } | undefined) => {
+        if (!old) return old
+        const rest = old.deliveries.filter((x) => x.id !== d.id)
+        if (['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(d.status)) {
+          return { deliveries: [d, ...rest] }
+        }
+        return { deliveries: rest }
+      })
+      qc.invalidateQueries({ queryKey: ['deliveries', 'restaurant', 'all'] })
+      if (d.status === 'ACCEPTED') toast.success('¡Repartidor en camino!', { description: 'Tu repartidor ha aceptado la solicitud.' })
+      if (d.status === 'PICKED_UP') toast.info('Pedido recogido', { description: 'El repartidor ha recogido el pedido.' })
+      if (d.status === 'DELIVERED') toast.success('¡Reparto completado!', { description: 'El repartidor ha confirmado la entrega.' })
+      if (d.status === 'REJECTED') toast.error('Solicitud rechazada', { description: 'El repartidor no pudo aceptar. Puedes solicitar de nuevo.' })
+    }
+    const onNew = (payload: unknown) => {
+      const d = payload as DeliveryDTO
+      qc.setQueryData(['deliveries', 'restaurant', 'active'], (old: { deliveries: DeliveryDTO[] } | undefined) => ({
+        deliveries: [d, ...(old?.deliveries.filter((x) => x.id !== d.id) || [])],
+      }))
+      qc.invalidateQueries({ queryKey: ['deliveries', 'restaurant', 'all'] })
+    }
+    const off1 = subscribe('delivery:update', onUpdate)
+    const off2 = subscribe('delivery:created', onNew)
+    return () => {
+      off1()
+      off2()
+    }
+  }, [subscribe, qc])
+
+  async function handleRequest() {
+    try {
+      const res = await api.createDelivery()
+      toast.success('Solicitud enviada', { description: 'Avisando al repartidor…' })
+      qc.setQueryData(['deliveries', 'restaurant', 'active'], { deliveries: [res.delivery] })
+      qc.invalidateQueries({ queryKey: ['deliveries', 'restaurant', 'all'] })
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? (err as { message?: string }).message
+          : 'Error al solicitar'
+      void refetch()
+      toast.error(msg)
+    }
+  }
+
+  const allDeliveries = allData?.deliveries || []
+  const todayCount = allDeliveries.filter(
+    (d) =>
+      d.deliveredAt &&
+      new Date(d.deliveredAt).toDateString() === new Date().toDateString(),
+  ).length
+  const completed = allDeliveries.filter((d) => d.status === 'DELIVERED')
+  const avgMs =
+    completed.length > 0
+      ? Math.round(
+          completed.reduce(
+            (acc, d) => acc + (d.totalMs || 0),
+            0,
+          ) / completed.length,
+        )
+      : 0
+
+  const navItems: NavItem[] = [
+    { id: 'inicio', label: 'Inicio', icon: StoreIcon },
+    { id: 'historial', label: 'Historial', icon: ClipboardList },
+  ]
+
+  const header = (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          Hola, {user.name}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground sm:text-base">
+          {user.address}
+        </p>
+      </div>
+      <ConnectionPill status={status} />
+    </div>
+  )
+
+  return (
+    <AppShell
+      navItems={navItems}
+      activeView={view}
+      onChangeView={(v) => setView(v as View)}
+      onLogout={onLogout}
+      header={header}
+    >
+      {view === 'inicio' && (
+        <div className="space-y-6">
+          {isLoading ? (
+            <Card className="flex h-64 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </Card>
+          ) : !isActive ? (
+            <RequestCard onRequest={handleRequest} />
+          ) : (
+            <ActiveDeliveryCard delivery={active!} />
+          )}
+
+          {/* Stats bar */}
+          <StatsBar
+            todayCount={todayCount}
+            totalCompleted={completed.length}
+            avgMs={avgMs}
+          />
+        </div>
+      )}
+      {view === 'historial' && (
+        <RestaurantHistory deliveries={allDeliveries} />
+      )}
+    </AppShell>
+  )
+}
+
+function ConnectionPill({
+  status,
+}: {
+  status: 'connecting' | 'connected' | 'disconnected'
+}) {
+  const map = {
+    connected: { label: 'Conectado', cls: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+    connecting: { label: 'Conectando…', cls: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+    disconnected: { label: 'Sin conexión', cls: 'border-rose-200 bg-rose-50 text-rose-700', dot: 'bg-rose-500' },
+  }[status]
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${map.cls}`}>
+      <span className={`h-2 w-2 rounded-full ${map.dot} ${status !== 'disconnected' ? 'animate-pulse' : ''}`} />
+      {map.label}
+    </span>
+  )
+}
+
+function RequestCard({ onRequest }: { onRequest: () => void }) {
+  return (
+    <Card className="overflow-hidden p-0 shadow-sm">
+      <div className="flex items-center justify-between bg-primary px-5 py-3.5 text-white">
+        <div className="flex items-center gap-2 font-bold">
+          <Bell className="h-4 w-4" />
+          Solicitar repartidor
+        </div>
+        <span className="text-sm text-white/80">Listo para enviar</span>
+      </div>
+      <CardContent className="flex flex-col items-center px-6 py-12 text-center sm:py-16">
+        <div className="mb-5 inline-flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Bell className="h-10 w-10" />
+        </div>
+        <h2 className="text-2xl font-bold">¿Pedido listo?</h2>
+        <p className="mt-2 max-w-md text-muted-foreground">
+          Pulsa el botón y el repartidor recibirá la solicitud al instante. Nada
+          de nombres, direcciones ni información del pedido.
+        </p>
+        <Button
+          size="lg"
+          className="mt-8 h-16 w-full max-w-sm text-lg font-semibold"
+          onClick={onRequest}
+        >
+          <Bell className="mr-2 h-6 w-6" />
+          Solicitar repartidor
+        </Button>
+        <p className="mt-4 text-xs text-muted-foreground">
+          El repartidor verá tu ubicación en el mapa
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ActiveDeliveryCard({ delivery }: { delivery: DeliveryDTO }) {
+  // Re-render every second so the elapsed counter and "hace Xs" tick live.
+  const now = useNow(1000)
+  const steps = [
+    { key: 'PENDING', label: 'Solicitado', time: delivery.requestedAt, icon: Bell },
+    { key: 'ACCEPTED', label: 'Aceptado', time: delivery.acceptedAt, icon: Bike },
+    { key: 'PICKED_UP', label: 'Recogido', time: delivery.pickedUpAt, icon: PackageCheck },
+    { key: 'DELIVERED', label: 'Entregado', time: delivery.deliveredAt, icon: CheckCircle2 },
+  ]
+  const currentIndex = steps.findIndex((s) => s.key === delivery.status)
+  const elapsedMin = Math.max(
+    0,
+    Math.round((now - new Date(delivery.requestedAt).getTime()) / 60000),
+  )
+
+  return (
+    <Card className="overflow-hidden p-0 shadow-sm">
+      {/* Orange header */}
+      <div className="flex items-center justify-between bg-primary px-5 py-3.5 text-white">
+        <div className="flex items-center gap-2 font-bold">
+          <Bike className="h-4 w-4" />
+          Pedido #{delivery.id.slice(-6).toUpperCase()}
+        </div>
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <Clock className="h-4 w-4" />
+          <span className="text-white/80">Tiempo:</span>
+          <span className="font-bold">{elapsedMin} min</span>
+        </div>
+      </div>
+
+      <CardContent className="p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">Estado del reparto</p>
+          <StatusBadge status={delivery.status} />
+        </div>
+
+        {/* Timeline */}
+        <ol className="relative space-y-5 border-l-2 border-border pl-6">
+          {steps.map((step, i) => {
+            const done = i <= currentIndex && step.time
+            const isCurrent = i === currentIndex
+            const Icon = step.icon
+            return (
+              <li key={step.key} className="relative">
+                <span
+                  className={`absolute -left-[31px] flex h-6 w-6 items-center justify-center rounded-full border-2 ${
+                    done
+                      ? 'border-primary bg-primary text-white'
+                      : 'border-border bg-card text-muted-foreground'
+                  } ${isCurrent ? 'ring-4 ring-primary/20' : ''}`}
+                >
+                  <Icon className="h-3 w-3" />
+                </span>
+                <div className="flex items-center justify-between">
+                  <span className={`text-sm font-medium ${done ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {step.label}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {step.time ? formatTime(step.time) : '—'}
+                  </span>
+                </div>
+                {isCurrent && step.time && (
+                  <p className="mt-0.5 text-xs text-primary">{relativeTime(step.time)}</p>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+
+        {delivery.status === 'PENDING' && (
+          <div className="mt-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            <Clock className="h-4 w-4 shrink-0" />
+            Esperando a que el repartidor acepte la solicitud…
+          </div>
+        )}
+        {delivery.status === 'ACCEPTED' && (
+          <div className="mt-5 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+            <Bike className="h-4 w-4 shrink-0" />
+            El repartidor se dirige a tu local para recoger el pedido.
+          </div>
+        )}
+        {delivery.status === 'PICKED_UP' && (
+          <div className="mt-5 flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-700">
+            <PackageCheck className="h-4 w-4 shrink-0" />
+            Pedido recogido. El repartidor está realizando la entrega.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function StatsBar({
+  todayCount,
+  totalCompleted,
+  avgMs,
+}: {
+  todayCount: number
+  totalCompleted: number
+  avgMs: number
+}) {
+  const stats = [
+    { label: 'Pedidos hoy', value: String(todayCount), icon: Bell },
+    { label: 'Total entregados', value: String(totalCompleted), icon: CheckCircle2 },
+    { label: 'Tiempo medio', value: formatDuration(avgMs), icon: Clock },
+  ]
+  return (
+    <Card className="shadow-sm">
+      <CardContent className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        {stats.map((s, i) => {
+          const Icon = s.icon
+          return (
+            <div
+              key={s.label}
+              className={`flex items-center gap-3 px-5 py-4 ${i === 0 ? 'sm:pl-5' : ''}`}
+            >
+              <Icon className="h-6 w-6 text-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">{s.label}</p>
+                <p className="text-2xl font-bold">{s.value}</p>
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
+}
+
+function RestaurantHistory({ deliveries }: { deliveries: DeliveryDTO[] }) {
+  const [query, setQuery] = useState('')
+  const filtered = useMemo(() => {
+    if (!query.trim()) return deliveries
+    const q = query.toLowerCase()
+    return deliveries.filter((d) => d.id.toLowerCase().includes(q))
+  }, [deliveries, query])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-bold">Historial de repartos</h2>
+        <div className="relative sm:w-72">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar por nº de pedido…"
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <History className="mb-2 h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">
+              {query ? 'No se encontraron repartos' : 'Aún no hay repartos registrados'}
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden p-0 shadow-sm">
+          <div className="hidden md:block">
+            <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-5 py-3 font-semibold">Pedido</th>
+                    <th className="px-5 py-3 font-semibold">Solicitado</th>
+                    <th className="px-5 py-3 font-semibold">Aceptado</th>
+                    <th className="px-5 py-3 font-semibold">Recogido</th>
+                    <th className="px-5 py-3 font-semibold">Entregado</th>
+                    <th className="px-5 py-3 font-semibold">Tiempo total</th>
+                    <th className="px-5 py-3 font-semibold">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((d) => (
+                    <tr key={d.id} className="border-t border-border hover:bg-muted/30">
+                      <td className="px-5 py-3 font-mono text-xs font-semibold text-primary">
+                        #{d.id.slice(-6).toUpperCase()}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{formatDateTime(d.requestedAt)}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.acceptedAt)}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.pickedUpAt)}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.deliveredAt)}</td>
+                      <td className="px-5 py-3 font-mono font-semibold">{formatDuration(d.totalMs)}</td>
+                      <td className="px-5 py-3"><StatusBadge status={d.status} showDot={false} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto p-3 scrollbar-thin md:hidden">
+            {filtered.map((d) => (
+              <div key={d.id} className="rounded-xl border border-border bg-card p-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-mono text-xs font-semibold text-primary">
+                    #{d.id.slice(-6).toUpperCase()}
+                  </p>
+                  <StatusBadge status={d.status} showDot={false} />
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>Solicitado: {formatDateTime(d.requestedAt)}</span>
+                  <span>Aceptado: {formatTime(d.acceptedAt)}</span>
+                  <span>Recogido: {formatTime(d.pickedUpAt)}</span>
+                  <span>Entregado: {formatTime(d.deliveredAt)}</span>
+                  <span className="col-span-2 font-mono font-semibold text-foreground">
+                    Tiempo total: {formatDuration(d.totalMs)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}
