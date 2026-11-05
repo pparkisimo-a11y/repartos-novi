@@ -177,6 +177,7 @@ function QrFlyerCard() {
   )
   const contactUrl = `${origin || 'https://repartosnovi.com'}/?contacto`
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=12&data=${encodeURIComponent(contactUrl)}`
+  const displayUrl = contactUrl.replace(/^https?:\/\//, '')
 
   function printFlyer() {
     const w = window.open('', '_blank', 'width=800,height=900')
@@ -191,33 +192,124 @@ function QrFlyerCard() {
 <title>Folleto Repartos NOVI</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #1F2937; padding: 48px; }
-  .flyer { max-width: 560px; margin: 0 auto; text-align: center; border: 4px solid #F97316; border-radius: 24px; padding: 48px 40px; }
-  .brand { font-size: 40px; font-weight: 900; font-style: italic; color: #F97316; letter-spacing: -1px; }
-  .brand-sub { font-size: 20px; font-weight: 700; font-style: italic; color: #1F2937; margin-bottom: 6px; }
-  h1 { font-size: 26px; margin: 18px 0 8px; }
-  p.lead { font-size: 16px; color: #6B7280; margin-bottom: 24px; }
-  img.qr { width: 280px; height: 280px; }
-  .cta { font-size: 18px; font-weight: 700; margin-top: 16px; }
-  .url { font-size: 13px; color: #6B7280; margin-top: 8px; word-break: break-all; }
-  .features { display: flex; justify-content: center; gap: 18px; margin-top: 26px; flex-wrap: wrap; }
-  .features span { font-size: 13px; color: #1F2937; background: #FFF3E8; border-radius: 999px; padding: 6px 14px; }
-  @media print { body { padding: 0; } }
+  body {
+    font-family: -apple-system, 'Segoe UI', Arial, Helvetica, sans-serif;
+    background: #F4F4F5;
+    color: #27272A;
+    padding: 32px 16px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .flyer {
+    max-width: 520px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0,0,0,.10);
+  }
+  .head { background: #18181B; padding: 32px 24px 26px; text-align: center; }
+  .head .pre {
+    color: #A1A1AA;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 7px;
+    text-transform: uppercase;
+  }
+  .head .brand {
+    color: #F97316;
+    font-size: 54px;
+    font-weight: 900;
+    font-style: italic;
+    letter-spacing: -2px;
+    line-height: 1.05;
+    margin-top: 2px;
+  }
+  .head .tag {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 5px 14px;
+    background: rgba(249,115,22,.14);
+    border: 1px solid rgba(249,115,22,.45);
+    color: #FDBA74;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .body { padding: 28px 28px 30px; text-align: center; }
+  h1 { font-size: 25px; line-height: 1.2; letter-spacing: -.4px; color: #18181B; }
+  h1 em { font-style: normal; color: #F97316; }
+  .sub {
+    margin: 10px auto 0;
+    max-width: 380px;
+    color: #52525B;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .qr-wrap {
+    margin-top: 22px;
+    display: inline-block;
+    padding: 13px;
+    border: 2px dashed #E4E4E7;
+    border-radius: 18px;
+  }
+  .qr-wrap img { display: block; width: 205px; height: 205px; }
+  .qr-cta { margin-top: 12px; font-size: 15px; font-weight: 800; color: #18181B; }
+  .qr-sub { margin-top: 3px; font-size: 12px; color: #71717A; }
+  .features {
+    margin-top: 22px;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .features span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #FFF7ED;
+    border: 1px solid #FED7AA;
+    color: #7C2D12;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 13px;
+    border-radius: 999px;
+  }
+  .features b { color: #F97316; font-size: 13px; }
+  .foot { background: #F97316; padding: 13px 12px; text-align: center; }
+  .foot .url { color: #fff; font-weight: 800; font-size: 15px; letter-spacing: .3px; word-break: break-all; }
+  .foot .note { color: rgba(255,255,255,.88); font-size: 11px; margin-top: 2px; }
+  @media print {
+    body { padding: 0; background: #fff; }
+    .flyer { box-shadow: none; border-radius: 0; max-width: none; }
+    @page { margin: 0; }
+  }
 </style>
 </head>
 <body>
   <div class="flyer">
-    <div class="brand-sub">Repartos</div>
-    <div class="brand">NOVI</div>
-    <h1>¿Tu local necesita reparto nocturno?</h1>
-    <p class="lead">Reparto dedicado para restaurantes de zona. Escanea el código y déjanos tus datos: te contactamos sin compromiso.</p>
-    <img class="qr" src="${qrUrl}" alt="QR ${contactUrl}" />
-    <div class="cta">Escanea con la cámara del móvil</div>
-    <div class="url">${contactUrl}</div>
-    <div class="features">
-      <span>✓ Un solo botón</span>
-      <span>✓ Sin permanencia</span>
-      <span>✓ Trato directo</span>
+    <div class="head">
+      <div class="pre">Repartos</div>
+      <div class="brand">NOVI</div>
+      <div class="tag">Reparto nocturno a domicilio</div>
+    </div>
+    <div class="body">
+      <h1>¿Tu local necesita <em>reparto nocturno</em>?</h1>
+      <p class="sub">Tú cocinas, nosotros llevamos los pedidos a casa de tus clientes. Sin curro extra para tu equipo y sin permanencia.</p>
+      <div class="qr-wrap">
+        <img class="qr" src="${qrUrl}" alt="QR ${contactUrl}" />
+      </div>
+      <div class="qr-cta">Escanea con la cámara del móvil</div>
+      <div class="qr-sub">Déjanos tus datos y te contactamos sin compromiso</div>
+      <div class="features">
+        <span><b>✓</b> Sin permanencia</span>
+        <span><b>✓</b> Pedidos con un botón</span>
+        <span><b>✓</b> Trato directo</span>
+      </div>
+    </div>
+    <div class="foot">
+      <div class="url">${displayUrl}</div>
+      <div class="note">Repartos NOVI · reparto nocturno para restaurantes</div>
     </div>
   </div>
   <script>window.onload = () => window.print()</script>
@@ -228,23 +320,61 @@ function QrFlyerCard() {
 
   return (
     <Card className="shadow-sm">
-      <CardContent className="flex flex-col items-center p-5 text-center">
-        <h3 className="flex items-center gap-2 self-start text-base font-bold">
+      <CardContent className="flex flex-col p-5">
+        <h3 className="flex items-center gap-2 text-base font-bold">
           <QrCode className="h-4 w-4 text-primary" />
           Folleto captación
         </h3>
-        <p className="mt-1 self-start text-xs text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Imprime y reparte: quien escanee el QR llegará a tu formulario de
           contacto.
         </p>
-        <div className="my-4 rounded-xl border border-border bg-white p-3">
-          <img
-            src={qrUrl}
-            alt="Código QR del formulario de contacto"
-            className="h-36 w-36"
-          />
+
+        {/* Mini preview of the printed flyer */}
+        <div
+          aria-hidden="true"
+          className="mt-4 select-none overflow-hidden rounded-xl border border-border shadow-sm"
+        >
+          <div className="bg-zinc-900 px-4 py-3.5 text-center">
+            <p className="text-[8px] font-bold uppercase tracking-[0.35em] text-zinc-400">
+              Repartos
+            </p>
+            <p className="mt-0.5 text-2xl font-black italic leading-none tracking-tight text-primary">
+              NOVI
+            </p>
+            <span className="mt-2 inline-block rounded-full border border-primary/45 bg-primary/15 px-2.5 py-0.5 text-[8px] font-semibold text-orange-300">
+              Reparto nocturno a domicilio
+            </span>
+          </div>
+          <div className="bg-white px-3 py-3.5 text-center">
+            <p className="text-[11px] font-bold leading-tight text-zinc-900">
+              ¿Tu local necesita{' '}
+              <span className="text-primary">reparto nocturno</span>?
+            </p>
+            <img
+              src={qrUrl}
+              alt="Código QR del formulario de contacto"
+              className="mx-auto my-2.5 h-24 w-24"
+            />
+            <p className="text-[9px] font-medium text-zinc-500">
+              Escanea con la cámara del móvil
+            </p>
+            <div className="mt-2.5 flex flex-wrap justify-center gap-1">
+              {['Sin permanencia', 'Un botón', 'Trato directo'].map((f) => (
+                <span
+                  key={f}
+                  className="rounded-full border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[7.5px] font-semibold text-orange-900"
+                >
+                  ✓ {f}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="bg-primary px-3 py-1.5 text-center">
+            <p className="truncate text-[9px] font-bold text-white">{displayUrl}</p>
+          </div>
         </div>
-        <p className="break-all text-[11px] text-muted-foreground">{contactUrl}</p>
+
         <Button
           onClick={printFlyer}
           className="mt-4 w-full bg-primary text-white hover:bg-primary/90"
@@ -278,7 +408,7 @@ function LeadCard({
     <Card className={`shadow-sm ${isPending ? 'border-primary/40' : ''}`}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             <span
               className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
                 isConverted
@@ -311,17 +441,6 @@ function LeadCard({
                   {lead.phone}
                 </a>
               )}
-              {lead.message && (
-                <p className="mt-2 rounded-lg bg-muted/60 p-2.5 text-sm text-muted-foreground">
-                  “{lead.message}”
-                </p>
-              )}
-              {lead.notes && (
-                <p className="mt-2 rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
-                  <MessageSquare className="mr-1 inline h-3 w-3" />
-                  {lead.notes}
-                </p>
-              )}
             </div>
           </div>
           <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
@@ -329,6 +448,18 @@ function LeadCard({
             {isPending && <RelativeBadge iso={lead.createdAt} />}
           </span>
         </div>
+
+        {lead.message && (
+          <p className="mt-3 rounded-lg bg-muted/60 p-2.5 text-sm text-muted-foreground">
+            “{lead.message}”
+          </p>
+        )}
+        {lead.notes && (
+          <p className="mt-2 rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
+            <MessageSquare className="mr-1 inline h-3 w-3" />
+            {lead.notes}
+          </p>
+        )}
 
         {isConverted && lead.convertedRestaurantName && (
           <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-sm text-emerald-700">
@@ -338,24 +469,27 @@ function LeadCard({
         )}
 
         {!isConverted && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={onOpenConvert} className="bg-primary text-white hover:bg-primary/90">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <Button
+              onClick={onOpenConvert}
+              className="col-span-2 h-10 bg-primary text-white hover:bg-primary/90 sm:col-span-1 sm:h-9"
+            >
               <Store className="mr-1.5 h-4 w-4" />
               Crear restaurante
             </Button>
             {isPending ? (
-              <Button variant="outline" onClick={onContacted}>
+              <Button variant="outline" className="h-10 sm:h-9" onClick={onContacted}>
                 <UserCheck className="mr-1.5 h-4 w-4" />
                 Contactado
               </Button>
             ) : null}
-            <Button variant="outline" onClick={onOpenNotes}>
+            <Button variant="outline" className="h-10 sm:h-9" onClick={onOpenNotes}>
               <MessageSquare className="mr-1.5 h-4 w-4" />
               Notas
             </Button>
             <Button
               variant="outline"
-              className="ml-auto border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+              className={`${isPending ? 'col-span-2 ' : ''}h-10 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:col-span-1 sm:ml-auto sm:h-9`}
               onClick={onReject}
             >
               <UserX className="mr-1.5 h-4 w-4" />
@@ -365,7 +499,11 @@ function LeadCard({
         )}
         {isConverted && (
           <div className="mt-4 flex gap-2">
-            <Button variant="outline" onClick={onOpenNotes}>
+            <Button
+              variant="outline"
+              className="h-10 w-full sm:h-9 sm:w-auto"
+              onClick={onOpenNotes}
+            >
               <MessageSquare className="mr-1.5 h-4 w-4" />
               Notas
             </Button>

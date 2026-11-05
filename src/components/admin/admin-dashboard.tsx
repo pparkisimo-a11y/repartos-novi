@@ -173,7 +173,7 @@ function ResumenView({
   return (
     <div className="space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
         {kpis.map((k) => {
           const Icon = k.icon
           return (
@@ -182,9 +182,11 @@ function ResumenView({
                 <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${k.tone}`}>
                   <Icon className="h-5 w-5" />
                 </span>
-                <div>
-                  <p className="text-2xl font-bold leading-none">{k.value}</p>
-                  <p className="mt-1.5 text-xs text-muted-foreground">{k.label}</p>
+                <div className="min-w-0">
+                  <p className="text-xl font-bold leading-tight tabular-nums sm:text-2xl">
+                    {k.value}
+                  </p>
+                  <p className="mt-1 text-xs leading-snug text-muted-foreground">{k.label}</p>
                 </div>
               </CardContent>
             </Card>

@@ -146,8 +146,6 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify({ endpoint }),
     }),
-  pushTest: () =>
-    request<{ sent: number }>('/api/push/test', { method: 'POST' }),
 
 
   // Admin (driver-only) restaurant management

@@ -246,13 +246,13 @@ function OnlineToggle({
         role="switch"
         aria-checked={available}
         onClick={onToggle}
-        className={`relative h-5 w-9 rounded-full transition-colors ${
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
           available ? 'bg-emerald-500' : 'bg-zinc-300'
         }`}
       >
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-            available ? 'translate-x-4' : 'translate-x-0.5'
+          className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+            available ? 'translate-x-[18px]' : 'translate-x-0.5'
           }`}
         />
       </button>

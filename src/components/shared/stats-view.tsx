@@ -69,18 +69,22 @@ export function StatsView() {
       <h2 className="text-xl font-bold">Estadísticas</h2>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {kpis.map((k) => {
           const Icon = k.icon
           return (
             <Card key={k.label} className="shadow-sm">
-              <CardContent className="flex items-center gap-3 p-5">
-                <span className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${k.tone}`}>
-                  <Icon className="h-6 w-6" />
+              <CardContent className="flex flex-col gap-2.5 p-4 sm:flex-row sm:items-center sm:gap-3 sm:p-5">
+                <span
+                  className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${k.tone}`}
+                >
+                  <Icon className="h-5 w-5 sm:h-6 sm:w-6" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm text-muted-foreground">{k.label}</p>
-                  <p className="truncate text-2xl font-bold">{k.value}</p>
+                  <p className="text-xs text-muted-foreground sm:text-sm">{k.label}</p>
+                  <p className="text-xl font-bold leading-tight tabular-nums sm:text-2xl">
+                    {k.value}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -149,22 +153,22 @@ export function StatsView() {
             </p>
           ) : (
             <div className="max-h-80 overflow-y-auto scrollbar-thin">
-              <table className="w-full text-sm">
+              <table className="w-full text-xs sm:text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-5 py-3 font-semibold">Restaurante</th>
-                    <th className="px-5 py-3 text-right font-semibold">Servicios</th>
-                    <th className="px-5 py-3 text-right font-semibold">Tiempo total</th>
-                    <th className="px-5 py-3 text-right font-semibold">Media</th>
+                    <th className="px-3 py-3 font-semibold sm:px-5">Restaurante</th>
+                    <th className="px-3 py-3 text-right font-semibold sm:px-5">Servicios</th>
+                    <th className="hidden px-3 py-3 text-right font-semibold sm:table-cell sm:px-5">Tiempo total</th>
+                    <th className="px-3 py-3 text-right font-semibold sm:px-5">Media</th>
                   </tr>
                 </thead>
                 <tbody>
                   {byRestaurant.map((r) => (
                     <tr key={r.restaurantId} className="border-t border-border">
-                      <td className="px-5 py-3 font-medium">{r.restaurantName}</td>
-                      <td className="px-5 py-3 text-right font-semibold">{r.count}</td>
-                      <td className="px-5 py-3 text-right font-mono">{formatDuration(r.totalMs)}</td>
-                      <td className="px-5 py-3 text-right font-mono">{formatDuration(r.avgMs)}</td>
+                      <td className="max-w-[9rem] truncate px-3 py-3 font-medium sm:max-w-none sm:px-5">{r.restaurantName}</td>
+                      <td className="px-3 py-3 text-right font-semibold sm:px-5">{r.count}</td>
+                      <td className="hidden whitespace-nowrap px-3 py-3 font-mono sm:table-cell sm:px-5">{formatDuration(r.totalMs)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 font-mono sm:px-5">{formatDuration(r.avgMs)}</td>
                     </tr>
                   ))}
                 </tbody>
