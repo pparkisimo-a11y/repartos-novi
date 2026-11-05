@@ -37,8 +37,11 @@ export function AppShell({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      {/* Brand */}
-      <div className="px-5 pt-5 pb-4">
+      {/* Brand — respeta el notch / Dynamic Island en móvil */}
+      <div
+        className="px-5 pb-4"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 1.25rem)' }}
+      >
         <Logo variant="sidebar" />
       </div>
 
@@ -81,7 +84,10 @@ export function AppShell({
       </nav>
 
       {/* Logout */}
-      <div className="border-t border-white/10 p-3">
+      <div
+        className="border-t border-white/10 p-3"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.75rem)' }}
+      >
         <button
           onClick={onLogout}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
@@ -122,8 +128,11 @@ export function AppShell({
 
       {/* Main content */}
       <div className="flex min-h-screen w-full flex-col lg:pl-64">
-        {/* Mobile top bar */}
-        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-card px-4 py-3 lg:hidden">
+        {/* Mobile top bar — padding superior para el notch / Dynamic Island */}
+        <div
+          className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-card px-4 py-3 lg:hidden"
+          style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
+        >
           <button
             onClick={() => setMobileOpen(true)}
             className="rounded-lg p-1.5 text-foreground hover:bg-muted"
@@ -134,7 +143,10 @@ export function AppShell({
           <Logo variant="light" size="sm" />
         </div>
 
-        <main className="flex-1">
+        <main
+          className="flex-1"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
           <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
             {header}
             <div className="mt-6">{children}</div>

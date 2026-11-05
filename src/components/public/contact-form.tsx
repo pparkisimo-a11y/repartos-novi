@@ -46,9 +46,15 @@ export function ContactForm() {
       <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-primary/20 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -left-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
 
-      <div className="relative mx-auto flex w-full max-w-lg flex-col px-4 py-10 sm:py-14">
+      <div
+        className="relative mx-auto flex w-full max-w-lg flex-col px-4 py-10 sm:py-14"
+        style={{
+          paddingTop: 'max(env(safe-area-inset-top), 2.5rem)',
+          paddingBottom: 'max(env(safe-area-inset-bottom), 2.5rem)',
+        }}
+      >
         <div className="mb-6 flex flex-col items-center text-center">
-          <Logo size="lg" className="mb-4" />
+          <Logo variant="full" size="lg" className="mb-4" />
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             ¿Tienes un local y necesitas reparto?
           </h1>
@@ -115,6 +121,9 @@ export function ContactForm() {
                     value={restaurantName}
                     onChange={(e) => setRestaurantName(e.target.value)}
                     placeholder="Ej. Kebab Mediterráneo"
+                    autoCapitalize="sentences"
+                    autoComplete="organization"
+                    className="h-11 text-base"
                     required
                   />
                 </div>
@@ -126,6 +135,8 @@ export function ContactForm() {
                       value={contactName}
                       onChange={(e) => setContactName(e.target.value)}
                       placeholder="Tu nombre"
+                      autoComplete="name"
+                      className="h-11 text-base"
                     />
                   </div>
                   <div className="space-y-2">
@@ -136,6 +147,9 @@ export function ContactForm() {
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="600 123 456"
+                      autoComplete="tel"
+                      inputMode="tel"
+                      className="h-11 text-base"
                       required
                     />
                   </div>

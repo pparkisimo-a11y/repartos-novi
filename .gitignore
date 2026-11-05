@@ -58,3 +58,6 @@ prompt
 /.zscripts/
 Caddyfile
 server.log
+
+# imágenes subidas por el usuario (no forman parte del despliegue)
+/upload/
