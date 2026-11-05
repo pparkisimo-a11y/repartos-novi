@@ -25,7 +25,6 @@ export async function realtimeEmit(body: EmitPayload): Promise<void> {
   try {
     // Production: in-process socket.io (set by server.js)
     const g = globalThis as unknown as { __io?: SocketIOServer }
-    console.log(`[realtimeEmit] event=${body.event} room=${body.room || '*'} hasIO=${!!g.__io} url=${REALTIME_URL}`)
     if (g.__io) {
       if (body.room) {
         g.__io.to(body.room).emit(body.event, body.payload)
@@ -36,7 +35,7 @@ export async function realtimeEmit(body: EmitPayload): Promise<void> {
     }
 
     // Sandbox: ask the realtime mini-service (server-to-server)
-    const res = await fetch(`${REALTIME_URL}/emit`, {
+    await fetch(`${REALTIME_URL}/emit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -45,7 +44,6 @@ export async function realtimeEmit(body: EmitPayload): Promise<void> {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(3000),
     })
-    console.log(`[realtimeEmit] responded status=${res.status}`)
   } catch (err) {
     console.error('[realtimeEmit] failed:', err)
   }

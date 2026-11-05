@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
 import type { AppUser } from '@/lib/types'
 import { Logo } from '@/components/brand/logo'
+import { InstallIosBanner } from '@/components/pwa/install-ios-banner'
 
 /**
  * Pantalla de acceso única para los tres perfiles (restaurante, repartidor y
@@ -188,7 +189,13 @@ export function UnifiedAuth({ onSuccess }: { onSuccess: (user: AppUser) => void 
           ¿Tienes un local y quieres reparto nocturno? Escríbenos
         </a>
       </div>
-      <div className="h-24 sm:h-0" aria-hidden="true" />
+      {/* Espacio para que el enlace de contacto no quede bajo el aviso de
+          instalación de iOS (banner ~129px: 117px + 12px de margen) */}
+      <div className="h-36 sm:h-0" aria-hidden="true" />
+
+      {/* Aviso de instalación iOS: solo aquí, en el login — nunca sobre los
+          paneles de trabajo para no tapar botones críticos (aceptar/recoger) */}
+      <InstallIosBanner />
     </div>
   )
 }

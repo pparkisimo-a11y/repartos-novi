@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { Providers } from "@/components/providers";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
-import { InstallIosBanner } from "@/components/pwa/install-ios-banner";
 import { AppleSplashScreens } from "@/components/pwa/apple-splash";
 
 const geistSans = Geist({
@@ -69,7 +68,6 @@ export default function RootLayout({
       >
         <AppleSplashScreens />
         <Providers>{children}</Providers>
-        <InstallIosBanner />
         <ServiceWorkerRegister />
         <Toaster />
         <SonnerToaster position="top-center" richColors />
