@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getSessionFromRequest } from '@/lib/session'
 import { realtimeEmit } from '@/lib/realtime'
+import { sendPush } from '@/lib/push'
 import { serializeDelivery, DELIVERY_RESTAURANT_INCLUDE, type DeliveryStatus } from '@/lib/delivery'
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -92,6 +93,51 @@ export async function PATCH(
     room: 'driver',
     payload: dto,
   })
+
+  // --- Web Push (avisos con la app cerrada) ---
+  const tag = `delivery-${updated.id}`
+  if (session.role === 'driver') {
+    // El repartidor actualizó el estado → avisar al restaurante
+    const restaurantPush: Record<string, { title: string; body: string }> = {
+      ACCEPTED: {
+        title: '¡Repartidor aceptado!',
+        body: `${session.name} ha aceptado tu solicitud y va camino de tu local.`,
+      },
+      PICKED_UP: {
+        title: 'Pedido recogido',
+        body: `${session.name} ha recogido el pedido.`,
+      },
+      DELIVERED: {
+        title: 'Reparto completado',
+        body: `${session.name} ha confirmado la entrega.`,
+      },
+      REJECTED: {
+        title: 'Solicitud rechazada',
+        body: 'El repartidor no pudo aceptar tu solicitud. Puedes volver a solicitarla.',
+      },
+      CANCELLED: {
+        title: 'Solicitud cancelada',
+        body: `${session.name} ha cancelado el reparto. Contacta con tu coordinador.`,
+      },
+    }
+    const push = restaurantPush[nextStatus]
+    if (push) {
+      await sendPush(
+        { role: 'restaurant', userId: updated.restaurantId },
+        { ...push, tag },
+      )
+    }
+  } else if (nextStatus === 'CANCELLED' && updated.restaurant.assignedDriver) {
+    // El restaurante canceló → avisar al repartidor asignado
+    await sendPush(
+      { role: 'driver', userId: updated.restaurant.assignedDriver.id },
+      {
+        title: 'Pedido cancelado',
+        body: `${updated.restaurant.name} ha cancelado la solicitud de reparto.`,
+        tag,
+      },
+    )
+  }
 
   return NextResponse.json({ delivery: dto })
 }

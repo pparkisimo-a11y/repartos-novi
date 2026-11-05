@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, KeyRound, Moon, Zap, ShieldCheck, Clock, MapPin, Store, Bike, Shield } from 'lucide-react'
+import { Loader2, KeyRound, Moon, Zap, ShieldCheck, Clock, MapPin, Store, Bike, Shield, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,6 +23,7 @@ import { InstallIosBanner } from '@/components/pwa/install-ios-banner'
 export function UnifiedAuth({ onSuccess }: { onSuccess: (user: AppUser) => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -130,7 +131,6 @@ export function UnifiedAuth({ onSuccess }: { onSuccess: (user: AppUser) => void 
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Tu usuario"
                   autoCapitalize="none"
                   autoCorrect="off"
                   autoComplete="username"
@@ -142,17 +142,27 @@ export function UnifiedAuth({ onSuccess }: { onSuccess: (user: AppUser) => void 
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Contraseña</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  enterKeyHint="go"
-                  className="h-11 text-base"
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    enterKeyHint="go"
+                    className="h-11 pr-12 text-base"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-pressed={showPassword}
+                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                  </button>
+                </div>
               </div>
               <Button
                 type="submit"

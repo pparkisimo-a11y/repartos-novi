@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getSessionFromRequest } from '@/lib/session'
 import { realtimeEmit } from '@/lib/realtime'
+import { sendPush } from '@/lib/push'
 import {
   serializeDelivery,
   DELIVERY_RESTAURANT_INCLUDE,
@@ -118,6 +119,17 @@ export async function POST(req: Request) {
     room: `restaurant:${session.id}`,
     payload: dto,
   })
+
+  // Web Push al repartidor asignado: llega aunque tenga la app cerrada
+  // (clave en iPhone, donde solo el service worker puede mostrar avisos).
+  await sendPush(
+    { role: 'driver', userId: restaurant.assignedDriver.id },
+    {
+      title: 'Nueva solicitud de reparto',
+      body: `${restaurant.name} necesita repartidor`,
+      tag: `delivery-${delivery.id}`,
+    },
+  )
 
   return NextResponse.json({ delivery: dto }, { status: 201 })
 }

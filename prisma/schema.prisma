@@ -62,6 +62,23 @@ model Lead {
   @@index([status])
 }
 
+// Web Push subscriptions (iPhone/Android PWA notifications).
+// One row per device/browser that granted notification permission; the server
+// sends push messages to these endpoints (VAPID) so alerts arrive even with
+// the app closed.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  role      String // 'driver' | 'restaurant'
+  userId    String // driver id or restaurant id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role, userId])
+}
+
 model Delivery {
   id           String     @id @default(cuid())
   restaurantId String

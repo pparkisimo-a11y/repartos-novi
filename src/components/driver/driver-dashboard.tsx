@@ -33,6 +33,7 @@ import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
 import { formatTime } from '@/lib/format'
+import { PushBell } from '@/components/pwa/push-bell'
 
 type View = 'pedidos' | 'historial' | 'estadisticas'
 
@@ -105,11 +106,8 @@ export function DriverDashboard({
           description: `${d.restaurantName} solicita repartidor`,
           duration: 8000,
         })
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Nueva solicitud de reparto', {
-            body: `${d.restaurantName} solicita repartidor`,
-          })
-        }
+        // La notificación de pantalla la muestra el service worker (push):
+        // en iOS no se puede mostrar desde la página.
       }
     }
     const onUpdate = (payload: unknown) => {
@@ -134,12 +132,6 @@ export function DriverDashboard({
       off2()
     }
   }, [subscribe, qc, available, user.id])
-
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
-    }
-  }, [])
 
   const deliveries = data?.deliveries || []
   const pending = deliveries.filter((d) => d.status === 'PENDING')
@@ -186,11 +178,14 @@ export function DriverDashboard({
           Aquí tienes tus pedidos asignados
         </p>
       </div>
-      <OnlineToggle
-        available={available}
-        onToggle={() => setAvailable((v) => !v)}
-        socketStatus={status}
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <PushBell role="driver" userId={user.id} />
+        <OnlineToggle
+          available={available}
+          onToggle={() => setAvailable((v) => !v)}
+          socketStatus={status}
+        />
+      </div>
     </div>
   )
 
@@ -518,43 +513,43 @@ function OrderCard({
           )}
         </div>
 
-        {/* Actions */}
+        {/* Actions — Acceptar/Rechazar lado a lado y con buen tamaño táctil */}
         {!readOnly && (
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-5 space-y-3">
             {isPending && (
-              <>
+              <div className="grid grid-cols-2 gap-3">
                 <Button
                   onClick={onReject}
                   variant="outline"
-                  className="flex-1 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:max-w-[35%]"
-                  size="lg"
+                  className="h-14 border-2 border-rose-200 bg-rose-50/60 text-base font-semibold text-rose-600 transition-transform hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700 active:scale-[0.98]"
                 >
-                  <X className="mr-2 h-5 w-5" />
+                  <X className="h-5 w-5" />
                   Rechazar
                 </Button>
                 <Button
                   onClick={onAccept}
-                  className="flex-1 bg-primary text-white hover:bg-primary/90"
-                  size="lg"
+                  className="h-14 bg-primary text-base font-semibold text-white shadow-sm transition-transform hover:bg-primary/90 active:scale-[0.98]"
                 >
-                  <Check className="mr-2 h-5 w-5" />
-                  Aceptar pedido
+                  <Check className="h-5 w-5" />
+                  Aceptar
                 </Button>
-              </>
+              </div>
             )}
             {delivery.status === 'ACCEPTED' && (
-              <Button onClick={onPickup} className="w-full bg-primary text-white hover:bg-primary/90" size="lg">
-                <PackageCheck className="mr-2 h-5 w-5" />
+              <Button
+                onClick={onPickup}
+                className="h-14 w-full bg-primary text-base font-semibold text-white shadow-sm transition-transform hover:bg-primary/90 active:scale-[0.98]"
+              >
+                <PackageCheck className="h-5 w-5" />
                 He recogido el pedido
               </Button>
             )}
             {delivery.status === 'PICKED_UP' && (
               <Button
                 onClick={onDeliver}
-                className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                size="lg"
+                className="h-14 w-full bg-emerald-600 text-base font-semibold text-white shadow-sm transition-transform hover:bg-emerald-700 active:scale-[0.98]"
               >
-                <CheckCircle2 className="mr-2 h-5 w-5" />
+                <CheckCircle2 className="h-5 w-5" />
                 Marcar como entregado
               </Button>
             )}

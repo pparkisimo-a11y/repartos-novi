@@ -135,6 +135,21 @@ export const api = {
       '/api/restaurants',
     ),
 
+  // Push notifications (PWA)
+  pushSubscribe: (subscription: PushSubscriptionJSON, role: string, userId: string) =>
+    request<{ ok: boolean }>('/api/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({ subscription, role, userId }),
+    }),
+  pushUnsubscribe: (endpoint: string) =>
+    request<{ ok: boolean }>('/api/push/subscribe', {
+      method: 'DELETE',
+      body: JSON.stringify({ endpoint }),
+    }),
+  pushTest: () =>
+    request<{ sent: number }>('/api/push/test', { method: 'POST' }),
+
+
   // Admin (driver-only) restaurant management
   adminListRestaurants: () =>
     request<{ restaurants: AdminRestaurant[] }>('/api/admin/restaurants'),

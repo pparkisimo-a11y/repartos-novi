@@ -25,6 +25,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
+import { PushBell } from '@/components/pwa/push-bell'
 import {
   formatTime,
   formatDateTime,
@@ -140,7 +141,10 @@ export function RestaurantDashboard({
           {user.address}
         </p>
       </div>
-      <ConnectionPill status={status} />
+      <div className="flex flex-wrap items-center gap-2">
+        <PushBell role="restaurant" userId={user.id} />
+        <ConnectionPill status={status} />
+      </div>
     </div>
   )
 

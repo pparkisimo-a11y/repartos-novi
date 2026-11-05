@@ -5,10 +5,13 @@
  * - Navegación: red primero con respaldo offline (útil cuando Render está
  *   despertando de la pausa del plan free).
  * - API y socket.io: siempre red, nunca en caché.
+ * - Notificaciones push (Web Push): en iOS solo funcionan si las muestra el
+ *   service worker — nunca desde la página. Aquí es donde se ven los avisos
+ *   con la app cerrada.
  *
  * Subir la versión en CACHE_NAME para invalidar la caché al desplegar cambios.
  */
-const CACHE_NAME = 'novi-v1'
+const CACHE_NAME = 'novi-v2'
 
 const PRECACHE = [
   '/',
@@ -86,5 +89,52 @@ self.addEventListener('fetch', (event) => {
       .catch(() =>
         caches.match(req).then((hit) => hit || caches.match('/')),
       ),
+  )
+})
+
+// --- Notificaciones push (Web Push) ---
+// En iPhone las notificaciones de una PWA SOLO se pueden mostrar desde aquí
+// (service worker), y llegan incluso con la app cerrada del todo.
+self.addEventListener('push', (event) => {
+  let data = null
+  try {
+    data = event.data ? event.data.json() : null
+  } catch (e) {
+    data = null
+  }
+
+  const title = (data && data.title) || 'Repartos NOVI'
+  const body = (data && data.body) || ''
+  const tag = (data && data.tag) || 'novi'
+  const url = (data && data.url) || '/'
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      // Con el mismo tag, un aviso nuevo sustituye al anterior (sin pila)
+      renotify: true,
+      icon: '/icons/icon-192.png',
+      badge: '/favicon-32.png',
+      data: { url },
+    }),
+  )
+})
+
+// Al tocar la notificación: enfocar la app abierta (o abrirla)
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = (event.notification.data && event.notification.data.url) || '/'
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if ('focus' in client) {
+            return client.navigate(url).then(() => client.focus())
+          }
+        }
+        return self.clients.openWindow(url)
+      }),
   )
 })
