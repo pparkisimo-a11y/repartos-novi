@@ -49,7 +49,7 @@ import { formatDateTime } from '@/lib/format'
 
 const UNASSIGNED = '__none__'
 
-export function ManageRestaurants({ currentDriverId }: { currentDriverId: string }) {
+export function ManageRestaurants({ currentDriverId }: { currentDriverId?: string }) {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AdminRestaurant | null>(null)
@@ -300,7 +300,7 @@ function CreateRestaurantDialog({
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
-  currentDriverId: string
+  currentDriverId: string | undefined
   onCreated: () => void
 }) {
   const [loading, setLoading] = useState(false)
@@ -311,7 +311,7 @@ function CreateRestaurantDialog({
   const [address, setAddress] = useState('')
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
-  const [assignedDriverId, setAssignedDriverId] = useState<string>(currentDriverId)
+  const [assignedDriverId, setAssignedDriverId] = useState<string>(currentDriverId ?? '')
 
   const { data: driversData } = useQuery({
     queryKey: ['admin', 'drivers'],
@@ -327,7 +327,7 @@ function CreateRestaurantDialog({
     setAddress('')
     setLat('')
     setLng('')
-    setAssignedDriverId(currentDriverId)
+    setAssignedDriverId(currentDriverId ?? '')
   }
 
   function useMyLocation() {

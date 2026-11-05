@@ -27,7 +27,8 @@ function getPrismaClient(): PrismaClient {
     const stale =
       typeof (cached as unknown as Record<string, unknown>).lead === 'undefined' ||
       typeof (cached as unknown as Record<string, unknown>).restaurant === 'undefined' ||
-      typeof (cached as unknown as Record<string, unknown>).driver === 'undefined'
+      typeof (cached as unknown as Record<string, unknown>).driver === 'undefined' ||
+      typeof (cached as unknown as Record<string, unknown>).admin === 'undefined'
     if (stale) {
       globalForPrisma.prisma = createPrismaClient()
     }

@@ -8,6 +8,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ user: null })
   }
 
+  if (session.role === 'admin') {
+    // Refresh the admin from DB: if the account was deleted, force logout.
+    const admin = await db.admin.findUnique({
+      where: { id: session.id },
+      select: { id: true, name: true, username: true },
+    })
+    if (!admin) {
+      return NextResponse.json({ user: null })
+    }
+    return NextResponse.json({
+      user: { id: admin.id, name: admin.name, username: admin.username, role: 'admin' },
+    })
+  }
+
   if (session.role === 'driver') {
     // Refresh the driver from DB: if the account was deleted, force logout.
     const driver = await db.driver.findUnique({

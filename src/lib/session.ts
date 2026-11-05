@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers'
 import { createHmac, timingSafeEqual } from 'crypto'
 
-export type SessionRole = 'restaurant' | 'driver'
+export type SessionRole = 'restaurant' | 'driver' | 'admin'
 
 export interface SessionData {
   role: SessionRole
@@ -34,7 +34,7 @@ function decode(token: string): SessionData | null {
     const b = Buffer.from(expectedSig, 'hex')
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null
     const [role, id, ...nameParts] = payload.split(':')
-    if (role !== 'restaurant' && role !== 'driver') return null
+    if (role !== 'restaurant' && role !== 'driver' && role !== 'admin') return null
     if (!id) return null
     return { role, id, name: nameParts.join(':') || id }
   } catch {
@@ -113,6 +113,20 @@ export async function requireDriverFromRequest(req: Request): Promise<SessionDat
   const session = await getSessionFromRequest(req)
   if (!session || session.role !== 'driver') {
     const err = new Error('No autorizado') as Error & { status: number }
+    err.status = 403
+    throw err
+  }
+  return session
+}
+
+/**
+ * Assert the request's session is an admin. Throws with .status on failure.
+ * Management endpoints (leads, restaurants, drivers) are admin-only.
+ */
+export async function requireAdminFromRequest(req: Request): Promise<SessionData> {
+  const session = await getSessionFromRequest(req)
+  if (!session || session.role !== 'admin') {
+    const err = new Error('Solo el administrador puede hacer esto') as Error & { status: number }
     err.status = 403
     throw err
   }

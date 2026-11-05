@@ -10,9 +10,15 @@ import { StatusBadge } from '@/components/status-badge'
 import { ScopeToggle, type Scope } from './scope-toggle'
 import { formatTime, formatDateTime, formatDuration } from '@/lib/format'
 
-export function HistoryView() {
+/**
+ * Historial de repartos.
+ * - Repartidor: puede alternar entre sus repartos y todo el equipo.
+ * - Admin: `fixedScope="all"` → siempre ve todo, sin toggle.
+ */
+export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<Scope>('mine')
+  const [scopeState, setScopeState] = useState<Scope>('mine')
+  const scope: Scope = fixedScope ?? scopeState
   const { data, isLoading } = useQuery({
     queryKey: ['deliveries', 'driver', 'history', scope],
     queryFn: () => api.listDeliveries(undefined, scope),
@@ -44,7 +50,9 @@ export function HistoryView() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold">Historial de repartos</h2>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <ScopeToggle scope={scope} onChange={setScope} allLabel="Todo el equipo" />
+          {!fixedScope && (
+            <ScopeToggle scope={scopeState} onChange={setScopeState} allLabel="Todo el equipo" />
+          )}
           <div className="relative sm:w-60">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireDriverFromRequest } from '@/lib/session'
+import { requireAdminFromRequest } from '@/lib/session'
 import { updateLead } from '@/lib/admin-leads'
 
 export async function PATCH(
@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireDriverFromRequest(req)
+    await requireAdminFromRequest(req)
     const { id } = await params
     const body = await req.json().catch(() => ({}))
     const res = await updateLead(id, body)

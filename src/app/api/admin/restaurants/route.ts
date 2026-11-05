@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { requireDriverFromRequest } from '@/lib/session'
+import { requireAdminFromRequest } from '@/lib/session'
 import { listRestaurants, createRestaurant } from '@/lib/admin-restaurants'
 
 export async function GET(req: Request) {
   try {
-    await requireDriverFromRequest(req)
+    await requireAdminFromRequest(req)
     const restaurants = await listRestaurants()
     return NextResponse.json({ restaurants })
   } catch (err) {
@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requireDriverFromRequest(req)
+    await requireAdminFromRequest(req)
     const body = await req.json().catch(() => ({}))
     const res = await createRestaurant(body)
     if (!res.ok) {

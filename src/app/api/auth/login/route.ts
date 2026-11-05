@@ -13,6 +13,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Usuario y contraseña obligatorios' }, { status: 400 })
     }
 
+    // Unified login: the same form works for all three profiles. The username
+    // determines the role automatically (admin → driver → restaurant).
+
+    // Admin login (management profile)
+    const admin = await db.admin.findUnique({ where: { username } })
+    if (admin) {
+      if (!verifyPassword(password, admin.password)) {
+        return NextResponse.json({ error: 'Contraseña incorrecta' }, { status: 401 })
+      }
+      const adminSession = { role: 'admin' as const, id: admin.id, name: admin.name }
+      await setSession(adminSession)
+      return NextResponse.json({
+        user: { id: admin.id, name: admin.name, username, role: 'admin' },
+        token: createSessionToken(adminSession),
+      })
+    }
+
     // Driver login (each driver has its own DB account)
     const driver = await db.driver.findUnique({ where: { username } })
     if (driver) {

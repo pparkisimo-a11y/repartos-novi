@@ -63,7 +63,7 @@ const STATUS_CONFIG: Record<
   },
 }
 
-export function ManageLeads({ currentDriverId }: { currentDriverId: string }) {
+export function ManageLeads({ currentDriverId }: { currentDriverId?: string }) {
   const qc = useQueryClient()
   const [convertTarget, setConvertTarget] = useState<Lead | null>(null)
   const [notesTarget, setNotesTarget] = useState<Lead | null>(null)
@@ -393,7 +393,7 @@ function ConvertLeadDialog({
   onDone,
 }: {
   target: Lead | null
-  currentDriverId: string
+  currentDriverId: string | undefined
   onOpenChange: (o: boolean) => void
   onDone: () => void
 }) {
@@ -404,7 +404,7 @@ function ConvertLeadDialog({
   const [address, setAddress] = useState('')
   const [lat, setLat] = useState('40.4168')
   const [lng, setLng] = useState('-3.7038')
-  const [assignedDriverId, setAssignedDriverId] = useState(currentDriverId)
+  const [assignedDriverId, setAssignedDriverId] = useState<string | undefined>(currentDriverId)
 
   const { data: driversData } = useQuery({
     queryKey: ['admin', 'drivers'],

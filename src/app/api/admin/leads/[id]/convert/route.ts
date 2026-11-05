@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireDriverFromRequest } from '@/lib/session'
+import { requireAdminFromRequest } from '@/lib/session'
 import { convertLead } from '@/lib/admin-leads'
 
 export async function POST(
@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireDriverFromRequest(req)
+    await requireAdminFromRequest(req)
     const { id } = await params
     const body = await req.json().catch(() => ({}))
     const res = await convertLead(id, body)

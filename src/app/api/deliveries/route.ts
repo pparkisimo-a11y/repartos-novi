@@ -19,9 +19,10 @@ export async function GET(req: Request) {
   // For drivers: 'mine' (default) limits to their assigned restaurants, 'all' shows everything
   const view = searchParams.get('view') === 'all' ? 'all' : 'mine'
 
-  if (session.role === 'driver') {
+  if (session.role === 'driver' || session.role === 'admin') {
     const where: Record<string, unknown> = {}
-    if (view === 'mine') {
+    // Drivers default to their assigned restaurants; admins always see all.
+    if (view === 'mine' && session.role === 'driver') {
       where.restaurant = { assignedDriverId: session.id }
     }
     if (scope === 'active') {

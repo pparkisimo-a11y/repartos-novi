@@ -7,19 +7,15 @@ import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
 import type { AppUser } from '@/lib/types'
-import { RoleSelect } from '@/components/auth/role-select'
-import { RestaurantAuth } from '@/components/auth/restaurant-auth'
-import { DriverAuth } from '@/components/auth/driver-auth'
+import { UnifiedAuth } from '@/components/auth/unified-auth'
 import { RestaurantDashboard } from '@/components/restaurant/restaurant-dashboard'
 import { DriverDashboard } from '@/components/driver/driver-dashboard'
+import { AdminDashboard } from '@/components/admin/admin-dashboard'
 import { ContactForm } from '@/components/public/contact-form'
 import { AppFooter } from '@/components/app-footer'
 
-type AuthView = 'select' | 'restaurant' | 'driver'
-
 function HomeInner() {
   const qc = useQueryClient()
-  const [authView, setAuthView] = useState<AuthView>('select')
   const searchParams = useSearchParams()
   const isContact = searchParams.has('contacto')
 
@@ -32,7 +28,6 @@ function HomeInner() {
 
   function handleAuthed(u: AppUser) {
     qc.setQueryData(['me'], { user: u })
-    setAuthView('select')
   }
 
   async function handleLogout() {
@@ -56,14 +51,16 @@ function HomeInner() {
 
   // Dashboards manage their own full-screen layout (sidebar shell); no footer.
   if (user) {
-    return user.role === 'restaurant' ? (
-      <RestaurantDashboard user={user} onLogout={handleLogout} />
-    ) : (
-      <DriverDashboard user={user} onLogout={handleLogout} />
-    )
+    if (user.role === 'restaurant') {
+      return <RestaurantDashboard user={user} onLogout={handleLogout} />
+    }
+    if (user.role === 'admin') {
+      return <AdminDashboard user={user} onLogout={handleLogout} />
+    }
+    return <DriverDashboard user={user} onLogout={handleLogout} />
   }
 
-  // Landing + auth screens get the sticky footer.
+  // Unified login screen (restaurant / driver / admin) with sticky footer.
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <main className="flex-1">
@@ -71,12 +68,8 @@ function HomeInner() {
           <div className="flex h-[70vh] items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
-        ) : authView === 'select' ? (
-          <RoleSelect onSelect={(r) => setAuthView(r)} />
-        ) : authView === 'restaurant' ? (
-          <RestaurantAuth onSuccess={handleAuthed} onBack={() => setAuthView('select')} />
         ) : (
-          <DriverAuth onSuccess={handleAuthed} onBack={() => setAuthView('select')} />
+          <UnifiedAuth onSuccess={handleAuthed} />
         )}
       </main>
       <AppFooter />

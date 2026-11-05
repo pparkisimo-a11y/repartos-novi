@@ -19,9 +19,6 @@ import {
   Home,
   ArrowRight,
   Bell,
-  UserPlus,
-  Users,
-  Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -30,19 +27,14 @@ import { api, ApiError } from '@/lib/api-client'
 import type { AppUser, DeliveryDTO } from '@/lib/types'
 import { StatusBadge } from '@/components/status-badge'
 import { MapView } from './map-view'
-import { StatsView } from './stats-view'
-import { HistoryView } from './history-view'
-import { ManageRestaurants } from './manage-restaurants'
-import { ManageLeads } from './manage-leads'
-import { ManageDrivers } from './manage-drivers'
-import { ScopeToggle, type Scope } from './scope-toggle'
+import { StatsView } from '@/components/shared/stats-view'
+import { HistoryView } from '@/components/shared/history-view'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
 import { formatTime } from '@/lib/format'
 
-type View = 'pedidos' | 'solicitudes' | 'restaurantes' | 'repartidores' | 'historial' | 'estadisticas'
-type Scope = 'mine' | 'all'
+type View = 'pedidos' | 'historial' | 'estadisticas'
 
 export function DriverDashboard({
   user,
@@ -56,36 +48,18 @@ export function DriverDashboard({
   const beepRef = useRef<AudioContext | null>(null)
   const [view, setView] = useState<View>('pedidos')
   const [available, setAvailable] = useState(true)
-  const [scope, setScope] = useState<Scope>('mine')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['deliveries', 'driver', 'active', scope],
-    queryFn: () => api.listDeliveries('active', scope),
+    queryKey: ['deliveries', 'driver', 'active'],
+    queryFn: () => api.listDeliveries('active', 'mine'),
     refetchInterval: 15000,
   })
 
-  const { data: allData } = useQuery({
-    queryKey: ['deliveries', 'driver', 'all'],
+  const { data: recentData } = useQuery({
+    queryKey: ['deliveries', 'driver', 'recent'],
     queryFn: () => api.listDeliveries(undefined, 'mine'),
     refetchInterval: 30000,
   })
-
-  const { data: leadsData } = useQuery({
-    queryKey: ['admin', 'leads'],
-    queryFn: () => api.adminListLeads(),
-    refetchInterval: 30000,
-  })
-  const pendingLeads = (leadsData?.leads || []).filter(
-    (l) => l.status === 'PENDING',
-  ).length
-
-  const { data: driversData } = useQuery({
-    queryKey: ['admin', 'drivers'],
-    queryFn: () => api.adminListDrivers(),
-    refetchInterval: 60000,
-  })
-  const drivers = driversData?.drivers || []
-  const hasTeam = drivers.length > 1
 
   function playBeep() {
     try {
@@ -120,14 +94,11 @@ export function DriverDashboard({
       const d = payload as DeliveryDTO
       const mine = d.assignedDriverId === user.id
       if (mine) {
-        qc.setQueryData(['deliveries', 'driver', 'active', 'mine'], (old: { deliveries: DeliveryDTO[] } | undefined) => ({
+        qc.setQueryData(['deliveries', 'driver', 'active'], (old: { deliveries: DeliveryDTO[] } | undefined) => ({
           deliveries: [d, ...(old?.deliveries.filter((x) => x.id !== d.id) || [])],
         }))
       }
-      qc.setQueryData(['deliveries', 'driver', 'active', 'all'], (old: { deliveries: DeliveryDTO[] } | undefined) => ({
-        deliveries: [d, ...(old?.deliveries.filter((x) => x.id !== d.id) || [])],
-      }))
-      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'all'] })
+      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       if (mine && available) {
         playBeep()
         toast.success('Nueva solicitud de reparto', {
@@ -152,9 +123,8 @@ export function DriverDashboard({
         }
         return { deliveries: rest }
       }
-      if (mine) qc.setQueryData(['deliveries', 'driver', 'active', 'mine'], patch)
-      qc.setQueryData(['deliveries', 'driver', 'active', 'all'], patch)
-      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'all'] })
+      if (mine) qc.setQueryData(['deliveries', 'driver', 'active'], patch)
+      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       if (d.status === 'CANCELLED') toast.info('Solicitud cancelada', { description: `${d.restaurantName} canceló el reparto.` })
     }
     const off1 = subscribe('delivery:new', onNew)
@@ -175,7 +145,7 @@ export function DriverDashboard({
   const pending = deliveries.filter((d) => d.status === 'PENDING')
   const inProgress = deliveries.filter((d) => ['ACCEPTED', 'PICKED_UP'].includes(d.status))
 
-  const allDeliveries = allData?.deliveries || []
+  const allDeliveries = recentData?.deliveries || []
   // Activity = most recent finished/in-progress, take 4
   const activity = [...allDeliveries]
     .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime())
@@ -192,9 +162,8 @@ export function DriverDashboard({
         }
         return { deliveries: rest }
       }
-      qc.setQueryData(['deliveries', 'driver', 'active', 'mine'], patch)
-      qc.setQueryData(['deliveries', 'driver', 'active', 'all'], patch)
-      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'all'] })
+      qc.setQueryData(['deliveries', 'driver', 'active'], patch)
+      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       toast.success(label)
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Error'
@@ -205,9 +174,6 @@ export function DriverDashboard({
 
   const navItems: NavItem[] = [
     { id: 'pedidos', label: 'Mis pedidos', icon: Package, badge: pending.length },
-    { id: 'solicitudes', label: 'Solicitudes', icon: UserPlus, badge: pendingLeads },
-    { id: 'restaurantes', label: 'Restaurantes', icon: Store },
-    { id: 'repartidores', label: 'Repartidores', icon: Users },
     { id: 'historial', label: 'Historial', icon: ClipboardList },
     { id: 'estadisticas', label: 'Estadísticas', icon: BarChart3 },
   ]
@@ -242,9 +208,6 @@ export function DriverDashboard({
           pending={pending}
           inProgress={inProgress}
           activity={activity}
-          scope={scope}
-          hasTeam={hasTeam}
-          onScopeChange={setScope}
           onAccept={(d) => handleAction(d, 'ACCEPTED', 'Solicitud aceptada')}
           onReject={(d) => handleAction(d, 'REJECTED', 'Solicitud rechazada')}
           onPickup={(d) => handleAction(d, 'PICKED_UP', 'Pedido marcado como recogido')}
@@ -252,9 +215,6 @@ export function DriverDashboard({
           onViewHistory={() => setView('historial')}
         />
       )}
-      {view === 'solicitudes' && <ManageLeads currentDriverId={user.id} />}
-      {view === 'restaurantes' && <ManageRestaurants currentDriverId={user.id} />}
-      {view === 'repartidores' && <ManageDrivers currentDriverId={user.id} />}
       {view === 'historial' && <HistoryView />}
       {view === 'estadisticas' && <StatsView />}
     </AppShell>
@@ -310,9 +270,6 @@ function PedidosView({
   pending,
   inProgress,
   activity,
-  scope,
-  hasTeam,
-  onScopeChange,
   onAccept,
   onReject,
   onPickup,
@@ -323,9 +280,6 @@ function PedidosView({
   pending: DeliveryDTO[]
   inProgress: DeliveryDTO[]
   activity: DeliveryDTO[]
-  scope: Scope
-  hasTeam: boolean
-  onScopeChange: (s: Scope) => void
   onAccept: (d: DeliveryDTO) => void
   onReject: (d: DeliveryDTO) => void
   onPickup: (d: DeliveryDTO) => void
@@ -333,20 +287,9 @@ function PedidosView({
   onViewHistory: () => void
 }) {
   const hasActive = pending.length > 0 || inProgress.length > 0
-  const readOnly = scope === 'all'
 
   return (
     <div className="space-y-5">
-      {hasTeam && (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {readOnly
-              ? 'Vista de equipo: todos los pedidos activos. Solo el repartidor asignado puede gestionar cada uno.'
-              : 'Pedidos de los restaurantes asignados a ti.'}
-          </p>
-          <ScopeToggle scope={scope} onChange={onScopeChange} />
-        </div>
-      )}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: orders (2 cols) */}
         <div className="space-y-6 lg:col-span-2">
@@ -360,13 +303,9 @@ function PedidosView({
                 <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                   <Inbox className="h-7 w-7" />
                 </div>
-                <p className="font-semibold">
-                  {readOnly ? 'No hay pedidos activos en el equipo' : 'No tienes pedidos asignados'}
-                </p>
+                <p className="font-semibold">No tienes pedidos asignados</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {readOnly
-                    ? 'Cuando cualquier restaurante pida reparto aparecerá aquí'
-                    : 'Las nuevas solicitudes aparecerán aquí al instante'}
+                  Las nuevas solicitudes aparecerán aquí al instante
                 </p>
               </CardContent>
             </Card>
@@ -376,7 +315,6 @@ function PedidosView({
                 <OrderCard
                   key={d.id}
                   delivery={d}
-                  readOnly={readOnly}
                   onAccept={() => onAccept(d)}
                   onReject={() => onReject(d)}
                   onPickup={() => onPickup(d)}
@@ -387,7 +325,6 @@ function PedidosView({
                 <OrderCard
                   key={d.id}
                   delivery={d}
-                  readOnly={readOnly}
                   onAccept={() => onAccept(d)}
                   onReject={() => onReject(d)}
                   onPickup={() => onPickup(d)}

@@ -4,12 +4,12 @@ import { getSessionFromRequest } from '@/lib/session'
 
 export async function GET(req: Request) {
   const session = await getSessionFromRequest(req)
-  if (!session || session.role !== 'driver') {
-    return NextResponse.json({ error: 'Solo el repartidor puede ver las estadísticas' }, { status: 403 })
+  if (!session || (session.role !== 'driver' && session.role !== 'admin')) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   }
 
-  // Only the deliveries of the restaurants assigned to this driver
-  const mine = { restaurant: { assignedDriverId: session.id } }
+  // Drivers only see their assigned restaurants; admins see everything.
+  const mine = session.role === 'admin' ? {} : { restaurant: { assignedDriverId: session.id } }
 
   const deliveries = await db.delivery.findMany({
     where: { ...mine, status: 'DELIVERED' },

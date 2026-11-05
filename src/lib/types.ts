@@ -1,4 +1,4 @@
-export type Role = 'restaurant' | 'driver'
+export type Role = 'restaurant' | 'driver' | 'admin'
 
 export interface RestaurantUser {
   id: string
@@ -16,7 +16,14 @@ export interface DriverUser {
   role: 'driver'
 }
 
-export type AppUser = RestaurantUser | DriverUser
+export interface AdminUser {
+  id: string
+  name: string
+  username: string
+  role: 'admin'
+}
+
+export type AppUser = RestaurantUser | DriverUser | AdminUser
 
 export type DeliveryStatus =
   | 'PENDING'

@@ -40,7 +40,7 @@ import { toast } from 'sonner'
 import { api, ApiError, type AdminDriver } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
 
-export function ManageDrivers({ currentDriverId }: { currentDriverId: string }) {
+export function ManageDrivers({ currentDriverId }: { currentDriverId?: string }) {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AdminDriver | null>(null)

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireDriverFromRequest } from '@/lib/session'
+import { requireAdminFromRequest } from '@/lib/session'
 import { updateDriverPassword, updateDriverName, deleteDriver } from '@/lib/admin-drivers'
 
 export async function PATCH(
@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireDriverFromRequest(req)
+    const session = await requireAdminFromRequest(req)
     const { id } = await params
     const body = await req.json().catch(() => ({}))
     const action = String(body.action || '')
@@ -36,7 +36,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireDriverFromRequest(req)
+    const session = await requireAdminFromRequest(req)
     const { id } = await params
     const res = await deleteDriver(id, session)
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })

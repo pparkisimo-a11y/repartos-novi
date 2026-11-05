@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { requireDriverFromRequest } from '@/lib/session'
+import { requireAdminFromRequest } from '@/lib/session'
 import { listDrivers, createDriver } from '@/lib/admin-drivers'
 
 export async function GET(req: Request) {
   try {
-    await requireDriverFromRequest(req)
+    await requireAdminFromRequest(req)
     const drivers = await listDrivers()
     return NextResponse.json({ drivers })
   } catch (err) {
@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requireDriverFromRequest(req)
+    await requireAdminFromRequest(req)
     const body = await req.json().catch(() => ({}))
     const res = await createDriver(body)
     if (!res.ok) {
