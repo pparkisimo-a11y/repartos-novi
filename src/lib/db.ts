@@ -5,8 +5,11 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 function createPrismaClient() {
+  // En producción (Render) no logueamos cada query: llena los logs del plan
+  // gratuito muy rápido. En dev sí, es útil para depurar.
+  const isProd = process.env.NODE_ENV === 'production'
   return new PrismaClient({
-    log: ['query'],
+    log: isProd ? ['error', 'warn'] : ['query', 'error', 'warn'],
   })
 }
 
