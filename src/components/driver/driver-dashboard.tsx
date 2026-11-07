@@ -278,6 +278,7 @@ export function DriverDashboard({
           isSuperDriver={!!user.isSuperDriver}
           stealable={stealable}
           allActive={deliveries}
+          myDriverId={user.id}
           onAccept={(d) => handleAction(d, 'ACCEPTED', 'Solicitud aceptada')}
           onReject={(d) => handleAction(d, 'REJECTED', 'Solicitud rechazada')}
           onPickup={(d) => setPickupTarget(d)}
@@ -354,6 +355,7 @@ function PedidosView({
   isSuperDriver,
   stealable,
   allActive,
+  myDriverId,
   onAccept,
   onReject,
   onPickup,
@@ -368,6 +370,7 @@ function PedidosView({
   isSuperDriver: boolean
   stealable: DeliveryDTO[]
   allActive: DeliveryDTO[]
+  myDriverId: string
   onAccept: (d: DeliveryDTO) => void
   onReject: (d: DeliveryDTO) => void
   onPickup: (d: DeliveryDTO) => void
@@ -407,7 +410,7 @@ function PedidosView({
     return (
       <SuperSupervisionView
         allActive={allActive}
-        myDriverId={undefined}
+        myDriverId={myDriverId}
         onSteal={onSteal}
         onBackToMine={() => setSuperTab('mine')}
       />
@@ -577,17 +580,19 @@ function PedidosView({
 
 /**
  * Vista de supervisión del súper repartidor: ve TODOS los pedidos activos de
- * todos los locales con cuánto tiempo lleva el repartidor en cada fase.
- * Puede robar los PENDING y ACCEPTED; los PICKED_UP solo se muestran como
- * información (no se pueden robar, pero así sabe si alguien lleva mucho
- * sin entregar y puede contactar con él).
+ * todos los locales (excepto los suyos propios) con cuánto tiempo lleva el
+ * repartidor en cada fase. Puede robar los PENDING y ACCEPTED; los PICKED_UP
+ * solo se muestran como información (no se pueden robar, pero así sabe si
+ * alguien lleva mucho sin entregar y puede contactar con él).
  */
 function SuperSupervisionView({
   allActive,
+  myDriverId,
   onSteal,
   onBackToMine,
 }: {
   allActive: DeliveryDTO[]
+  myDriverId: string
   onSteal: (d: DeliveryDTO) => void
   onBackToMine: () => void
 }) {
@@ -608,12 +613,11 @@ function SuperSupervisionView({
     return rest > 0 ? `${h} h ${rest} min` : `${h} h`
   }
 
-  // Ordenar: primero los que más tiempo llevan (más urgente supervisar)
-  const sorted = [...allActive].sort((a, b) => {
-    const ta = new Date(a.requestedAt).getTime()
-    const tb = new Date(b.requestedAt).getTime()
-    return ta - tb // más antiguo primero
-  })
+  // Excluir los pedidos propios (ya están en "Mis pedidos") y ordenar por
+  // antigüedad (los que más tiempo llevan primero — más urgente supervisar).
+  const sorted = allActive
+    .filter((d) => d.driverId !== myDriverId && d.currentAssigneeId !== myDriverId)
+    .sort((a, b) => new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime())
 
   return (
     <div className="space-y-4">
