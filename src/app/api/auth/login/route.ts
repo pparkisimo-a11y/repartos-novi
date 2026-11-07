@@ -57,7 +57,10 @@ export async function POST(req: Request) {
     }
 
     // Restaurant login
-    const restaurant = await db.restaurant.findUnique({ where: { username } })
+    const restaurant = await db.restaurant.findUnique({
+      where: { username },
+      include: { drivers: { select: { driverId: true } } },
+    })
     if (!restaurant || !verifyPassword(password, restaurant.password)) {
       return NextResponse.json({ error: 'Usuario o contraseña incorrectos' }, { status: 401 })
     }
@@ -77,6 +80,7 @@ export async function POST(req: Request) {
         scheduleDays: restaurant.scheduleDays,
         scheduleStart: restaurant.scheduleStart,
         scheduleEnd: restaurant.scheduleEnd,
+        hasDrivers: restaurant.drivers.length > 0,
         role: 'restaurant',
       },
       token: restaurantToken,

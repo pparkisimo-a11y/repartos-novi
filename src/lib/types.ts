@@ -11,6 +11,7 @@ export interface RestaurantUser {
   scheduleDays: string
   scheduleStart: string
   scheduleEnd: string
+  hasDrivers: boolean
 }
 
 export interface DriverUser {

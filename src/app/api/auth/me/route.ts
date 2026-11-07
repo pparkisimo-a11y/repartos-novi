@@ -49,6 +49,7 @@ export async function GET(req: Request) {
       scheduleDays: true,
       scheduleStart: true,
       scheduleEnd: true,
+      drivers: { select: { driverId: true } },
     },
   })
 
@@ -56,7 +57,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ user: null })
   }
 
+  const { drivers, ...rest } = restaurant
   return NextResponse.json({
-    user: { ...restaurant, role: 'restaurant' },
+    user: { ...rest, role: 'restaurant', hasDrivers: drivers.length > 0 },
   })
 }

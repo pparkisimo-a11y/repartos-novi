@@ -51,6 +51,7 @@ import {
 } from '@/components/shared/order-collapsible'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
+import { useNow } from '@/hooks/use-now'
 import { formatTime } from '@/lib/format'
 import { PushBell } from '@/components/pwa/push-bell'
 import { feeForDistanceKm, haversineKm, formatEur, formatKm, feeExplanation } from '@/lib/fees'
@@ -276,6 +277,7 @@ export function DriverDashboard({
           activity={activity}
           isSuperDriver={!!user.isSuperDriver}
           stealable={stealable}
+          allActive={deliveries}
           onAccept={(d) => handleAction(d, 'ACCEPTED', 'Solicitud aceptada')}
           onReject={(d) => handleAction(d, 'REJECTED', 'Solicitud rechazada')}
           onPickup={(d) => setPickupTarget(d)}
@@ -351,6 +353,7 @@ function PedidosView({
   activity,
   isSuperDriver,
   stealable,
+  allActive,
   onAccept,
   onReject,
   onPickup,
@@ -364,6 +367,7 @@ function PedidosView({
   activity: DeliveryDTO[]
   isSuperDriver: boolean
   stealable: DeliveryDTO[]
+  allActive: DeliveryDTO[]
   onAccept: (d: DeliveryDTO) => void
   onReject: (d: DeliveryDTO) => void
   onPickup: (d: DeliveryDTO) => void
@@ -372,6 +376,9 @@ function PedidosView({
   onViewHistory: () => void
 }) {
   const hasActive = pending.length > 0 || inProgress.length > 0
+
+  // Súper repartidor: pestaña "Mis pedidos" | "Supervisión"
+  const [superTab, setSuperTab] = useState<'mine' | 'supervision'>('mine')
 
   // Pedidos en curso abiertos (los PENDING van siempre grandes; los
   // aceptados se pliegan y se abren aquí al tocarlos).
@@ -395,8 +402,56 @@ function PedidosView({
     onDeliver: () => onDeliver(d),
   })
 
+  // Si es súper y está en "supervisión", mostrar la vista de supervisión
+  if (isSuperDriver && superTab === 'supervision') {
+    return (
+      <SuperSupervisionView
+        allActive={allActive}
+        myDriverId={undefined}
+        onSteal={onSteal}
+        onBackToMine={() => setSuperTab('mine')}
+      />
+    )
+  }
+
   return (
     <div className="space-y-5">
+      {/* Selector de pestañas para súper repartidores */}
+      {isSuperDriver && (
+        <div className="flex gap-1 rounded-xl border border-border bg-muted/40 p-1">
+          <button
+            type="button"
+            onClick={() => setSuperTab('mine')}
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              superTab === 'mine' ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Package className="mr-1.5 inline h-4 w-4" />
+            Mis pedidos
+            {hasActive && (
+              <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${superTab === 'mine' ? 'bg-white/20' : 'bg-muted'}`}>
+                {pending.length + inProgress.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSuperTab('supervision')}
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              superTab === 'supervision' ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Shield className="mr-1.5 inline h-4 w-4" />
+            Supervisión
+            {stealable.length > 0 && (
+              <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${superTab === 'supervision' ? 'bg-white/20' : 'bg-amber-100 text-amber-700'}`}>
+                {stealable.length}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: orders (2 cols) */}
         <div className="space-y-4 lg:col-span-2">
@@ -516,61 +571,181 @@ function PedidosView({
           </Card>
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* Súper repartidor: sección para robar/tomar pedidos de otros */}
-      {isSuperDriver && stealable.length > 0 && (
-        <Card className="border-primary/30 bg-primary/5 p-0 shadow-sm">
-          <div className="flex items-center gap-2 bg-primary px-5 py-3 text-white">
-            <Shield className="h-4 w-4" />
-            <span className="font-bold">Pedidos de otros repartidores</span>
-            <span className="ml-auto text-sm text-white/80">
-              {stealable.length} disponible{stealable.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <CardContent className="space-y-2 p-4">
-            <p className="text-xs text-muted-foreground">
-              Como súper repartidor puedes hacerte cargo de cualquier pedido: los
-              que llevan otros repartidores (si fallan), los que están esperando
-              repartidor o los que no tienen a nadie asignado.
-            </p>
-            <div className="max-h-80 space-y-2 overflow-y-auto scrollbar-thin">
-              {stealable.map((d) => {
-                const isUnassigned = !d.driverId && !d.currentAssigneeName
-                return (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">
-                        {d.restaurantName}
-                        {d.customerName && <span className="font-normal text-muted-foreground"> · {d.customerName}</span>}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {isUnassigned ? (
-                          <span className="font-medium text-amber-600">Sin repartidor asignado</span>
-                        ) : (
-                          <span className="font-medium text-foreground">{d.driverName ?? d.currentAssigneeName ?? '—'}</span>
-                        )}
-                        {' · '}
-                        {d.status === 'PENDING' ? 'Esperando' : 'En camino al local'}
-                        {d.fee != null && ` · ${d.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => onSteal(d)}
-                      className="shrink-0 bg-primary text-white hover:bg-primary/90"
-                    >
-                      <Shield className="mr-1.5 h-3.5 w-3.5" />
-                      {isUnassigned ? 'Tomar' : 'Robar'}
-                    </Button>
-                  </div>
-                )
-              })}
-            </div>
+/**
+ * Vista de supervisión del súper repartidor: ve TODOS los pedidos activos de
+ * todos los locales con cuánto tiempo lleva el repartidor en cada fase.
+ * Puede robar los PENDING y ACCEPTED; los PICKED_UP solo se muestran como
+ * información (no se pueden robar, pero así sabe si alguien lleva mucho
+ * sin entregar y puede contactar con él).
+ */
+function SuperSupervisionView({
+  allActive,
+  onSteal,
+  onBackToMine,
+}: {
+  allActive: DeliveryDTO[]
+  onSteal: (d: DeliveryDTO) => void
+  onBackToMine: () => void
+}) {
+  const now = useNow(30000) // refresca cada 30s para los tiempos
+
+  /** Calcula los minutos transcurridos desde un timestamp ISO. */
+  function elapsedMin(iso: string | null): number | null {
+    if (!iso) return null
+    return Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000))
+  }
+
+  /** Etiqueta de tiempo legible: "5 min", "1 h 20 min". */
+  function fmtMin(m: number | null): string {
+    if (m == null) return '—'
+    if (m < 60) return `${m} min`
+    const h = Math.floor(m / 60)
+    const rest = m % 60
+    return rest > 0 ? `${h} h ${rest} min` : `${h} h`
+  }
+
+  // Ordenar: primero los que más tiempo llevan (más urgente supervisar)
+  const sorted = [...allActive].sort((a, b) => {
+    const ta = new Date(a.requestedAt).getTime()
+    const tb = new Date(b.requestedAt).getTime()
+    return ta - tb // más antiguo primero
+  })
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-bold">
+            <Shield className="h-5 w-5 text-primary" />
+            Supervisión de repartos
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Todos los pedidos activos. Roba los que fallan; en los que ya están
+            repartiendo, vigila el tiempo y contacta si tardan demasiado.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onBackToMine}>
+          <Package className="mr-1.5 h-3.5 w-3.5" />
+          Mis pedidos
+        </Button>
+      </div>
+
+      {sorted.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Inbox className="mb-2 h-8 w-8 text-muted-foreground/50" />
+            <p className="font-medium">No hay pedidos activos en este momento</p>
           </CardContent>
         </Card>
+      ) : (
+        <div className="space-y-2">
+          {sorted.map((d) => {
+            const isUnassigned = !d.driverId && !d.currentAssigneeName
+            const canSteal = d.status === 'PENDING' || d.status === 'ACCEPTED'
+            const driverLabel = d.driverName ?? d.currentAssigneeName ?? null
+
+            // Tiempo según la fase:
+            // PENDING → desde requestedAt ("sin aceptar")
+            // ACCEPTED → desde acceptedAt ("sin recoger")
+            // PICKED_UP → desde pickedUpAt ("sin entregar")
+            let phaseLabel = ''
+            let phaseTime: number | null = null
+            let phaseColor = 'text-muted-foreground'
+            if (d.status === 'PENDING') {
+              phaseTime = elapsedMin(d.requestedAt)
+              phaseLabel = isUnassigned ? 'Sin repartidor asignado' : `sin aceptar`
+              if (isUnassigned) phaseColor = 'text-amber-600'
+            } else if (d.status === 'ACCEPTED') {
+              phaseTime = elapsedMin(d.acceptedAt)
+              phaseLabel = 'sin recoger'
+            } else if (d.status === 'PICKED_UP') {
+              phaseTime = elapsedMin(d.pickedUpAt)
+              phaseLabel = 'sin entregar'
+            }
+
+            // Alerta visual si lleva mucho tiempo
+            const isSlow = phaseTime != null && phaseTime >= 15
+            const isVerySlow = phaseTime != null && phaseTime >= 30
+
+            return (
+              <Card
+                key={d.id}
+                className={`p-0 shadow-sm ${
+                  isVerySlow
+                    ? 'border-rose-300'
+                    : isSlow
+                      ? 'border-amber-300'
+                      : 'border-border'
+                }`}
+              >
+                <CardContent className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">
+                        {d.restaurantName}
+                        {d.customerName && (
+                          <span className="font-normal text-muted-foreground"> · {d.customerName}</span>
+                        )}
+                      </p>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        #{d.id.slice(-6).toUpperCase()}
+                      </span>
+                      {d.fee != null && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                          <Euro className="h-3 w-3" />
+                          {d.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                        </span>
+                      )}
+                    </div>
+                    <p className={`mt-1.5 text-xs font-medium ${phaseColor}`}>
+                      {isUnassigned ? (
+                        <span>Sin repartidor asignado · esperando {fmtMin(phaseTime)}</span>
+                      ) : driverLabel ? (
+                        <span>
+                          <strong className="text-foreground">{driverLabel}</strong>
+                          {' lleva '}
+                          <strong className={isVerySlow ? 'text-rose-600' : isSlow ? 'text-amber-600' : 'text-foreground'}>
+                            {fmtMin(phaseTime)}
+                          </strong>
+                          {' ' + phaseLabel}
+                        </span>
+                      ) : (
+                        <span>Esperando repartidor · {fmtMin(phaseTime)}</span>
+                      )}
+                    </p>
+                    {d.status === 'PICKED_UP' && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        ⚠ Ya está repartiendo — no se puede robar. Si tarda
+                        mucho, contacta con <strong>{driverLabel}</strong>.
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0">
+                    {canSteal ? (
+                      <Button
+                        size="sm"
+                        onClick={() => onSteal(d)}
+                        className="bg-primary text-white hover:bg-primary/90"
+                      >
+                        <Shield className="mr-1.5 h-3.5 w-3.5" />
+                        {isUnassigned ? 'Tomar' : 'Robar'}
+                      </Button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        Vigilando
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
     </div>
   )

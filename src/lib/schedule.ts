@@ -42,7 +42,7 @@ export function parseSchedule(
   }
 }
 
-/** ¿El horario está vacío (local siempre abierto)? */
+/** ¿El horario está vacío (no configurado)? El admin debe negociarlo. */
 export function isScheduleEmpty(s: Schedule): boolean {
   return s.days.length === 0 && !s.start && !s.end
 }
@@ -55,10 +55,11 @@ function toMin(hhmm: string): number {
 
 /**
  * ¿El restaurante está abierto AHORA según su horario negociado?
- * Si el horario está vacío, siempre abierto.
+ * Si el horario está vacío (no configurado), está CERRADO: el admin debe
+ * negociar el horario con el local antes de que pueda pedir reparto.
  */
 export function isRestaurantOpen(s: Schedule, now: Date = new Date()): boolean {
-  if (isScheduleEmpty(s)) return true
+  if (isScheduleEmpty(s)) return false
   const day = now.getDay()
   const minutes = now.getHours() * 60 + now.getMinutes()
 
@@ -93,7 +94,7 @@ export function isRestaurantOpen(s: Schedule, now: Date = new Date()): boolean {
 
 /** Descripción legible del horario para la UI. */
 export function scheduleLabel(s: Schedule): string {
-  if (isScheduleEmpty(s)) return 'Abierto 24/7 (sin horario negociado)'
+  if (isScheduleEmpty(s)) return 'Sin horario configurado'
   const days =
     s.days.length === 0
       ? 'Todos los días'

@@ -236,8 +236,38 @@ export function RestaurantDashboard({
     >
       {view === 'inicio' && (
         <div className="space-y-6">
-          {/* Horario negociado: avisa si está fuera de horas */}
-          {!isOpen && (
+          {/* Indicadores de configuración: sin horario o sin repartidores */}
+          {!user.hasDrivers && (
+            <Card className="border-rose-300 bg-rose-50">
+              <CardContent className="flex items-start gap-3 p-4 text-rose-800">
+                <Bike className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
+                <div className="text-sm">
+                  <p className="font-semibold">Sin repartidores asignados</p>
+                  <p className="mt-0.5">
+                    Tu local todavía no tiene repartidores. Contacta con el
+                    administrador para que te asigne repartidores y poder pedir
+                    reparto.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {user.hasDrivers && !isOpen && schedule.days.length === 0 && (
+            <Card className="border-rose-300 bg-rose-50">
+              <CardContent className="flex items-start gap-3 p-4 text-rose-800">
+                <Clock className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
+                <div className="text-sm">
+                  <p className="font-semibold">Sin horario configurado</p>
+                  <p className="mt-0.5">
+                    Tu local todavía no tiene un horario de reparto negociado.
+                    Contacta con el administrador para fijar los días y horas en
+                    los que puedes pedir reparto.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {user.hasDrivers && !isOpen && schedule.days.length > 0 && (
             <Card className="border-amber-300 bg-amber-50">
               <CardContent className="flex items-start gap-3 p-4 text-amber-800">
                 <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
@@ -251,7 +281,7 @@ export function RestaurantDashboard({
               </CardContent>
             </Card>
           )}
-          {isOpen && schedule.days.length > 0 && (
+          {user.hasDrivers && isOpen && schedule.days.length > 0 && (
             <Card className="border-emerald-200 bg-emerald-50">
               <CardContent className="flex items-center gap-3 p-3 text-emerald-700">
                 <Clock className="h-4 w-4 shrink-0" />
@@ -266,7 +296,12 @@ export function RestaurantDashboard({
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </Card>
           ) : actives.length === 0 ? (
-            <RequestCard onRequest={() => setRequestOpen(true)} disabled={!isOpen} closedLabel={!isOpen ? scheduleLabel(schedule) : undefined} />
+            <RequestCard
+              onRequest={() => setRequestOpen(true)}
+              disabled={!isOpen || !user.hasDrivers}
+              disabledText={!user.hasDrivers ? 'Sin repartidores' : schedule.days.length === 0 ? 'Sin horario' : 'Fuera de horario'}
+              closedLabel={!user.hasDrivers ? 'sin repartidores asignados' : !isOpen ? scheduleLabel(schedule) : undefined}
+            />
           ) : (
             <>
               {/* Pedir otro reparto SIN scroll: la acción rápida vive arriba,
@@ -276,12 +311,12 @@ export function RestaurantDashboard({
               <Button
                 size="lg"
                 variant="outline"
-                disabled={!isOpen}
+                disabled={!isOpen || !user.hasDrivers}
                 className="h-12 w-full border-2 border-dashed border-primary/50 bg-primary/5 px-8 text-base font-semibold text-primary hover:border-primary/70 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => setRequestOpen(true)}
               >
                 <Plus className="mr-2 h-5 w-5" />
-                {isOpen ? 'Solicitar otro reparto' : 'Fuera de horario'}
+                {!user.hasDrivers ? 'Sin repartidores' : schedule.days.length === 0 ? 'Sin horario' : isOpen ? 'Solicitar otro reparto' : 'Fuera de horario'}
               </Button>
 
               {/* Esperan repartidor: GRANDES como siempre — son los vivos */}
@@ -360,10 +395,12 @@ function ConnectionPill({
 function RequestCard({
   onRequest,
   disabled = false,
+  disabledText = 'Fuera de horario',
   closedLabel,
 }: {
   onRequest: () => void
   disabled?: boolean
+  disabledText?: string
   closedLabel?: string
 }) {
   return (
@@ -374,7 +411,7 @@ function RequestCard({
           Solicitar repartidor
         </div>
         <span className="text-sm text-white/80">
-          {disabled ? 'Fuera de horario' : 'Listo para enviar'}
+          {disabled ? disabledText : 'Listo para enviar'}
         </span>
       </div>
       <CardContent className="flex flex-col items-center px-6 py-12 text-center sm:py-16">
@@ -401,7 +438,7 @@ function RequestCard({
           onClick={onRequest}
         >
           <Bell className="mr-2 h-6 w-6" />
-          {disabled ? 'Fuera de horario' : 'Solicitar repartidor'}
+          {disabled ? disabledText : 'Solicitar repartidor'}
         </Button>
         <p className="mt-4 text-xs text-muted-foreground">
           El repartidor verá tu ubicación en el mapa
