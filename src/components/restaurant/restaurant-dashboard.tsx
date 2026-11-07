@@ -229,6 +229,20 @@ export function RestaurantDashboard({
             <RequestCard onRequest={() => setRequestOpen(true)} />
           ) : (
             <>
+              {/* Pedir otro reparto SIN scroll: la acción rápida vive arriba,
+                  a un toque aunque haya muchos pedidos debajo. El borde
+                  discontinuo comunica "añadir otro" sin robar protagonismo
+                  a los pedidos que esperan repartidor. */}
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12 w-full border-2 border-dashed border-primary/50 bg-primary/5 px-8 text-base font-semibold text-primary hover:border-primary/70 hover:bg-primary/10"
+                onClick={() => setRequestOpen(true)}
+              >
+                <Plus className="mr-2 h-5 w-5" />
+                Solicitar otro reparto
+              </Button>
+
               {/* Esperan repartidor: GRANDES como siempre — son los vivos */}
               {pendingActives.length > 0 && (
                 <OrdersSectionLabel
@@ -259,23 +273,6 @@ export function RestaurantDashboard({
                   onToggle={() => toggleOrder(d.id)}
                 />
               ))}
-              {/* Con pedidos en curso también se puede solicitar otro */}
-              <Card className="border-dashed">
-                <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    ¿Otro pedido listo? Puede haber varios repartos en curso a la vez.
-                  </p>
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="h-12 border-2 border-primary/40 px-8 text-base font-semibold text-primary hover:bg-primary/5"
-                    onClick={() => setRequestOpen(true)}
-                  >
-                    <Plus className="mr-2 h-5 w-5" />
-                    Solicitar otro reparto
-                  </Button>
-                </CardContent>
-              </Card>
             </>
           )}
 
