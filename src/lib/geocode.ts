@@ -391,7 +391,7 @@ export async function geocodeAddress(
 const acCache = new Map<string, AddressSuggestion[]>()
 const AC_CACHE_LIMIT = 200
 const AC_MIN_QUERY_LEN = 3
-const AC_MAX_RESULTS = 6
+const AC_MAX_RESULTS = 4
 
 // Zona de reparto para el autocomplete de Photon/Nominatim: cuadro "duro"
 // alrededor del restaurante (±0.2° ≈ ±22 km). Los resultados FUERA de este
@@ -602,13 +602,33 @@ async function searchNominatimSuggestions(
 }
 
 function dedupeSuggestions(list: AddressSuggestion[]): AddressSuggestion[] {
-  const seen = new Set<string>()
-  return list.filter((s) => {
-    const key = s.label.toLowerCase()
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  const seen: AddressSuggestion[] = []
+  for (const s of list) {
+    // Clave de colapso: calle + número SIN código postal, municipio, ni
+    // artículos ("de", "la", "del"). Así "Calle de Recogidas 40, 18101
+    // Vegas del Genil" y "Calle Recogidas 40, 18002 Granada" colapsan si
+    // están cerca (mismo portal en municipios colindantes).
+    const baseLabel = deaccent(s.label)
+      .replace(/\b\d{5}\b/g, '') // quita CP
+      .replace(/\b(de|la|del|el|las|los|y)\b/g, ' ') // quita artículos
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const isDup = seen.some((existing) => {
+      const exLabel = deaccent(existing.label)
+        .replace(/\b\d{5}\b/g, '')
+        .replace(/\b(de|la|del|el|las|los|y)\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (exLabel === baseLabel) return true
+      // Coordenadas muy cercanas (< 300 m): mismo portal o tramo de calle
+      const dist = distanceKm(existing, s)
+      if (dist < 0.3) return true
+      return false
+    })
+    if (!isDup) seen.push(s)
+  }
+  return seen
 }
 
 /* ------------------- Relevancia de las sugerencias ------------------- *
@@ -1033,10 +1053,19 @@ export async function autocompleteAddresses(
     const kept = base.filter((s) => scoreSuggestion(s, match) > 0)
     if (kept.length > 0) base = kept
     // 2. Complementar con POIs/lugares de Photon y recortar al límite.
-    final = dedupeSuggestions(complementWithPhoton(base, photon, match)).slice(
-      0,
-      AC_MAX_RESULTS,
-    )
+    final = dedupeSuggestions(complementWithPhoton(base, photon, match))
+    // 3. Si hay bias (posición del restaurante), filtrar los que estén a más
+    //    de 30 km — un reparto nocturno de kebab no va a otra provincia.
+    //    Luego ordenar por cercanía para que el más próximo salga primero.
+    //    (ArcGIS prioriza la zona pero no excluye; esto limpia homónimos.)
+    if (bias) {
+      final = final
+        .map((s) => ({ s, d: distanceKm(s, bias) }))
+        .filter((x) => x.d <= 30)
+        .sort((a, b) => a.d - b.d)
+        .map((x) => x.s)
+    }
+    final = final.slice(0, AC_MAX_RESULTS)
   } else if (photon.length === 0) {
     // Consulta PARCIAL ("calle trev"): findAddressCandidates no sugiere con
     // prefijos y Photon tampoco encontró nada. El endpoint `suggest` de
