@@ -1183,7 +1183,7 @@ function PickupDialog({
             />
 
             {/* Dirección seleccionada → distancia + tarifa en vivo */}
-            {selected && route && (
+            {selected && route && route.km > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                 <span className="flex items-center gap-1.5 text-sm text-emerald-700">
                   <MapPin className="h-4 w-4 shrink-0" />
@@ -1196,6 +1196,12 @@ function PickupDialog({
                 <span className="inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white">
                   {formatEur(fee)}
                 </span>
+              </div>
+            )}
+            {selected && routeLoading && (!route || route.km === 0) && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" />
+                <span className="text-sm text-emerald-700">Calculando ruta por carretera…</span>
               </div>
             )}
 
