@@ -922,7 +922,7 @@ function parseFee(base: string, threshold: string, extra: string): FeeConfig | n
 /**
  * Editor del horario negociado del local. Selecciona los días activos con
  * botones (Lun–Dom) y la franja horaria con dos inputs de tipo time.
- * Vacío (sin días ni horas) = 24/7 sin restricción.
+ * Vacío (sin días ni horas) = bloqueado (no puede pedir reparto).
  */
 function EditScheduleDialog({
   target,
@@ -986,7 +986,7 @@ function EditScheduleDialog({
           <DialogDescription>
             Días y franja horaria en los que este local puede pedir reparto.
             Fuera de este horario, el botón de solicitar repartidor se bloquea.
-            Si lo dejas vacío, el local está abierto 24/7.
+            Si lo dejas vacío, el local no podrá pedir reparto hasta que configures un horario.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
@@ -1015,7 +1015,7 @@ function EditScheduleDialog({
             </div>
             <p className="text-xs text-muted-foreground">
               {days.length === 0
-                ? 'Sin selección = todos los días (24/7 si tampoco hay horario).'
+                ? 'Sin selección = todos los días (pero necesita franja horaria).'
                 : `${days.length} día${days.length === 1 ? '' : 's'} seleccionado${days.length === 1 ? '' : 's'}.`}
             </p>
           </div>
@@ -1057,8 +1057,8 @@ function EditScheduleDialog({
           </div>
 
           {is247 && (
-            <p className="text-xs text-amber-600">
-              ⚠ Sin horario: el local podrá pedir reparto a cualquier hora.
+            <p className="text-xs text-rose-600">
+              ⚠ Sin horario: el local <strong>no podrá pedir reparto</strong> hasta que configures sus días y horas.
             </p>
           )}
         </form>

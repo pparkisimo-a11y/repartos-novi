@@ -594,7 +594,7 @@ function EditDriverScheduleDialog({
           <DialogDescription>
             Días y franja horaria en los que este repartidor trabaja. Fuera de
             su horario no se le ofrecerán pedidos (se salta en la rotación).
-            Si lo dejas vacío, trabaja 24/7.
+            Si lo dejas vacío, trabaja todos los días a cualquier hora.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
