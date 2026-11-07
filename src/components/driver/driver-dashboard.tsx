@@ -44,6 +44,7 @@ import { MapView } from './map-view'
 import { AddressAutocomplete } from './address-autocomplete'
 import { StatsView } from '@/components/shared/stats-view'
 import { HistoryView } from '@/components/shared/history-view'
+import { OrdersGroup } from '@/components/shared/orders-group'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
@@ -322,6 +323,34 @@ function PedidosView({
 }) {
   const hasActive = pending.length > 0 || inProgress.length > 0
 
+  // Grupos expandibles: si un restaurante tiene varios pedidos a la vez se
+  // contraen en una cabecera compacta (mejor vista general de noche, cuando
+  // un local saca varios repartos seguidos). Los sueltos van como siempre.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
+  const toggleGroup = (key: string) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const byRestaurant = new Map<string, DeliveryDTO[]>()
+  for (const d of [...pending, ...inProgress]) {
+    const list = byRestaurant.get(d.restaurantId)
+    if (list) list.push(d)
+    else byRestaurant.set(d.restaurantId, [d])
+  }
+  const restaurantGroups = [...byRestaurant.values()]
+
+  const orderCardProps = (d: DeliveryDTO) => ({
+    delivery: d,
+    onAccept: () => onAccept(d),
+    onReject: () => onReject(d),
+    onPickup: () => onPickup(d),
+    onDeliver: () => onDeliver(d),
+  })
+
   return (
     <div className="space-y-5">
       <div className="grid gap-6 lg:grid-cols-3">
@@ -345,26 +374,37 @@ function PedidosView({
             </Card>
           ) : (
             <>
-              {pending.map((d) => (
-                <OrderCard
-                  key={d.id}
-                  delivery={d}
-                  onAccept={() => onAccept(d)}
-                  onReject={() => onReject(d)}
-                  onPickup={() => onPickup(d)}
-                  onDeliver={() => onDeliver(d)}
-                />
-              ))}
-              {inProgress.map((d) => (
-                <OrderCard
-                  key={d.id}
-                  delivery={d}
-                  onAccept={() => onAccept(d)}
-                  onReject={() => onReject(d)}
-                  onPickup={() => onPickup(d)}
-                  onDeliver={() => onDeliver(d)}
-                />
-              ))}
+              {restaurantGroups.map((items) => {
+                // Un solo pedido del local → tarjeta normal, sin grupo
+                if (items.length === 1) {
+                  return <OrderCard key={items[0].id} {...orderCardProps(items[0])} />
+                }
+                const pend = items.filter((d) => d.status === 'PENDING').length
+                const prog = items.length - pend
+                const key = items[0].restaurantId
+                return (
+                  <OrdersGroup
+                    key={key}
+                    icon={Store}
+                    title={items[0].restaurantName}
+                    ordersCount={items.length}
+                    open={openGroups.has(key)}
+                    onToggle={() => toggleGroup(key)}
+                    chips={[
+                      ...(pend > 0
+                        ? [{ label: `${pend} ${pend === 1 ? 'pendiente' : 'pendientes'}`, tone: 'amber' as const }] 
+                        : []),
+                      ...(prog > 0
+                        ? [{ label: `${prog} en curso`, tone: 'primary' as const }]
+                        : []),
+                    ]}
+                  >
+                    {items.map((d) => (
+                      <OrderCard key={d.id} {...orderCardProps(d)} />
+                    ))}
+                  </OrdersGroup>
+                )
+              })}
             </>
           )}
         </div>

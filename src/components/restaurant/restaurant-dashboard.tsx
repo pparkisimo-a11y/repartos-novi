@@ -34,6 +34,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api-client'
 import type { AppUser, DeliveryDTO } from '@/lib/types'
 import { StatusBadge } from '@/components/status-badge'
+import { OrdersGroup } from '@/components/shared/orders-group'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
@@ -81,6 +82,31 @@ export function RestaurantDashboard({
       ),
     [data],
   )
+
+  // Grupos expandibles: si un repartidor lleva varios pedidos a la vez se
+  // contraen en una cabecera compacta (y los que esperan repartidor también).
+  // Los sueltos se muestran como siempre.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
+  const toggleGroup = (key: string) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const byDriver = new Map<string, DeliveryDTO[]>()
+  for (const d of actives) {
+    const k = d.driverId ?? 'none'
+    const list = byDriver.get(k)
+    if (list) list.push(d)
+    else byDriver.set(k, [d])
+  }
+  // Primero los que esperan repartidor (necesitan atención), luego por
+  // repartidor en el orden en que aparecen.
+  const driverGroups = [...byDriver.entries()]
+    .sort(([a], [b]) => (a === 'none' ? -1 : b === 'none' ? 1 : 0))
+    .map(([k, items]) => ({ key: k, items }))
 
   useEffect(() => {
     const onUpdate = (payload: unknown) => {
@@ -202,9 +228,45 @@ export function RestaurantDashboard({
             <RequestCard onRequest={() => setRequestOpen(true)} />
           ) : (
             <>
-              {actives.map((d) => (
-                <ActiveDeliveryCard key={d.id} delivery={d} />
-              ))}
+              {driverGroups.map(({ key, items }) => {
+                // Un solo pedido → tarjeta normal, sin grupo
+                if (items.length === 1) {
+                  return <ActiveDeliveryCard key={items[0].id} delivery={items[0]} />
+                }
+                const waiting = key === 'none'
+                const nPending = items.filter((d) => d.status === 'PENDING').length
+                const nAccepted = items.filter((d) => d.status === 'ACCEPTED').length
+                const nPicked = items.filter((d) => d.status === 'PICKED_UP').length
+                return (
+                  <OrdersGroup
+                    key={key}
+                    icon={waiting ? Clock : Bike}
+                    title={
+                      waiting
+                        ? 'Esperando repartidor'
+                        : items[0].driverName || 'Repartidor'
+                    }
+                    ordersCount={items.length}
+                    open={openGroups.has(key)}
+                    onToggle={() => toggleGroup(key)}
+                    chips={[
+                      ...(nPending > 0
+                        ? [{ label: `${nPending} ${nPending === 1 ? 'pendiente' : 'pendientes'}`, tone: 'amber' as const }]
+                        : []),
+                      ...(nAccepted > 0
+                        ? [{ label: `${nAccepted} en camino`, tone: 'primary' as const }]
+                        : []),
+                      ...(nPicked > 0
+                        ? [{ label: `${nPicked} ${nPicked === 1 ? 'recogido' : 'recogidos'}`, tone: 'violet' as const }]
+                        : []),
+                    ]}
+                  >
+                    {items.map((d) => (
+                      <ActiveDeliveryCard key={d.id} delivery={d} />
+                    ))}
+                  </OrdersGroup>
+                )
+              })}
               {/* Con pedidos en curso también se puede solicitar otro */}
               <Card className="border-dashed">
                 <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
