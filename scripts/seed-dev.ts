@@ -49,22 +49,25 @@ async function main() {
   }
 
   // --- Restaurantes (asignados a TODOS los repartidores) ---
+  // La app es para GRANADA: los locales de prueba usan direcciones reales de
+  // Granada (portales verificados en OSM) para que el autocomplete y el
+  // cálculo de tarifa se prueben con datos realistas.
   const restaurants = [
     {
       name: 'Kebab Istanbul',
       username: 'istanbul',
       password: '1234',
-      address: 'Calle Mayor 1, Madrid',
-      lat: 40.4168,
-      lng: -3.7038,
+      address: 'Gran Vía de Colón 25, Granada',
+      lat: 37.178677,
+      lng: -3.599303,
     },
     {
       name: 'Pizzeria Centro',
       username: 'pizzacentro',
       password: 'pizza1234',
-      address: 'Plaza del Sol 3, Madrid',
-      lat: 40.4175,
-      lng: -3.7034,
+      address: 'Calle Recogidas 40, Granada',
+      lat: 37.171432,
+      lng: -3.6036962,
     },
   ]
   for (const r of restaurants) {

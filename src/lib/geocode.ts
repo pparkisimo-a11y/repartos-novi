@@ -160,6 +160,13 @@ export async function geocodeAddress(
  * encaje con lo tecleado. Los resultados se puntúan contra la consulta
  * (tokens de calle + número de portal) y se ordenan por relevancia y
  * cercanía. Véase «Relevancia de las sugerencias» más abajo.
+ *
+ * PORTAL A NIVEL DE EDIFICIO: si el número exacto no está indexado en OSM
+ * (p. ej. un 25 suelto de una calle larga), se SONDEA Photon con los
+ * números vecinos de la misma calle y se INTERPOLA la posición del portal
+ * entre los que sí existen («Calle Elvira 15 · portal estimado»). Así el
+ * repartidor selecciona el bloque concreto y la tarifa se calcula al punto
+ * real de la calle, no al centroide de una calle de 1 km.
  * ------------------------------------------------------------------ */
 
 // Caché propia del autocomplete (las consultas parciales cambian rápido,
@@ -211,8 +218,23 @@ interface PhotonFeature {
   }
 }
 
+/** Sugerencia con metadatos internos para el enriquecimiento de portal:
+ *  viajan en la respuesta (inofensivos para el cliente) y permiten saber
+ *  si una dirección trae número real, sintetizar entradas "planas" y
+ *  estimar portales entre los vecinos. */
+interface RichSuggestion extends AddressSuggestion {
+  /** Número de portal real si la dirección/POI lo trae. */
+  portal?: number
+  /** Nombre de la calle sin el número ("Calle Elvira"). */
+  streetText?: string
+  /** Línea de ciudad ("18010 Granada"). */
+  cityLine?: string
+  /** El portal es una posición estimada por interpolación. */
+  approximate?: boolean
+}
+
 /** Convierte una feature de Photon en sugerencia de 2 líneas. */
-function photonToSuggestion(f: PhotonFeature): AddressSuggestion | null {
+function photonToSuggestion(f: PhotonFeature): RichSuggestion | null {
   const coords = f.geometry?.coordinates
   if (!coords) return null
   const [lng, lat] = coords
@@ -236,20 +258,26 @@ function photonToSuggestion(f: PhotonFeature): AddressSuggestion | null {
     secondary = cityLine + country
   }
 
+  const portal = p.housenumber ? Number.parseInt(p.housenumber, 10) : NaN
+
   return {
     lat,
     lng,
     main,
     secondary: secondary.replace(/^,\s*/, ''),
     label: [main, secondary].filter(Boolean).join(', '),
+    portal: Number.isFinite(portal) ? portal : undefined,
+    streetText: p.street || undefined,
+    cityLine: cityLine || undefined,
   }
 }
 
-async function searchPhoton(
+/** Llamada cruda a Photon (features completas, para sondear portales). */
+async function fetchPhoton(
   q: string,
   bias?: { lat: number; lng: number },
   opts: { zoneOnly?: boolean } = {},
-): Promise<AddressSuggestion[]> {
+): Promise<PhotonFeature[]> {
   const url = new URL(PHOTON_API)
   url.searchParams.set('q', q)
   url.searchParams.set('limit', '10')
@@ -276,35 +304,55 @@ async function searchPhoton(
   )
   if (!res.ok) return []
   const data = (await res.json()) as { features?: PhotonFeature[] }
-  return (data.features || [])
+  return data.features || []
+}
+
+async function searchPhoton(
+  q: string,
+  bias?: { lat: number; lng: number },
+  opts: { zoneOnly?: boolean } = {},
+): Promise<RichSuggestion[]> {
+  const feats = await fetchPhoton(q, bias, opts)
+  return feats
     .map(photonToSuggestion)
-    .filter((s): s is AddressSuggestion => s !== null)
+    .filter((s): s is RichSuggestion => s !== null)
 }
 
 /** display_name de Nominatim → sugerencia corta y legible.
  *
  * "Calle Mayor, Barrio de la Latina, Palacio, Centro, Madrid, Comunidad de
  * Madrid, 28013, España" → main "Calle Mayor" / secondary "Centro, 28013
- * Madrid". La etiqueta corta es la que queda escrita en el input y guardada
- * en el pedido. */
-function nominatimToSuggestion(r: GeoPoint): AddressSuggestion {
-  const parts = (r.label || '').split(',').map((s) => s.trim()).filter(Boolean)
+ * Madrid". Los PORTAL de Nominatim vienen como "25, Calle Mayor, …" y se
+ * normalizan a "Calle Mayor 25". La etiqueta corta es la que queda escrita
+ * en el input y guardada en el pedido. */
+function nominatimToSuggestion(r: GeoPoint): RichSuggestion {
+  let parts = (r.label || '').split(',').map((s) => s.trim()).filter(Boolean)
+  let streetText: string | undefined
+  // Portal de Nominatim: "25, Calle Mayor, Barrio, …" → "Calle Mayor 25"
+  if (parts.length > 1 && /^\d{1,4}\s*[a-z]?$/i.test(parts[0])) {
+    streetText = parts[1]
+    parts = [`${parts[1]} ${parts[0]}`, ...parts.slice(2)]
+  }
   const main = parts[0] || r.label || 'Dirección'
   let secondary = parts.slice(1, 3).join(', ')
+  let cityLine = ''
   const iPC = parts.findIndex((p) => /^\d{5}$/.test(p))
   if (iPC >= 3) {
     const city = parts[iPC - 2] || ''
     const district = parts[iPC - 3] || ''
-    secondary = [district, [parts[iPC], city].filter(Boolean).join(' ')]
-      .filter(Boolean)
-      .join(', ')
+    cityLine = [parts[iPC], city].filter(Boolean).join(' ')
+    secondary = [district, cityLine].filter(Boolean).join(', ')
   }
+  const portalMatch = main.match(/(\d{1,4})\s*[a-z]?$/i)
   return {
     lat: r.lat,
     lng: r.lng,
     main,
     secondary,
     label: [main, secondary].filter(Boolean).join(', '),
+    portal: portalMatch ? Number(portalMatch[1]) : undefined,
+    streetText: streetText ?? (portalMatch ? undefined : main),
+    cityLine: cityLine || undefined,
   }
 }
 
@@ -435,14 +483,125 @@ function rankSuggestions(
       return { s, i, score: raw + nearBonus, dist }
     })
     .sort((a, b) => b.score - a.score || a.dist - b.dist || a.i - b.i)
-  // Si hay algo que encaja de verdad con lo tecleado, el ruido sobra.
-  if (ranked.some((r) => r.score >= 2)) {
-    return ranked
-      .filter((r) => r.score >= 1)
-      .slice(0, AC_MAX_RESULTS)
-      .map((r) => r.s)
+  // Si algo encaja con lo tecleado, el ruido sobra; y si NADA encaja (ni de
+  // lejos) mejor no ofrecer nada: el repartidor puede poner los km a mano.
+  if (!ranked.some((r) => r.score >= 1)) return []
+  return ranked
+    .filter((r) => r.score >= 1)
+    .slice(0, AC_MAX_RESULTS)
+    .map((r) => r.s)
+}
+
+/** Interpola la posición del portal `target` a lo largo de la calle a partir
+ *  de los portales vecinos indexados (misma acera primero — pares e impares
+ *  van en aceras opuestas). Devuelve null si no hay referencias fiables. */
+function interpolatePortal(
+  anchors: Array<{ num: number; lat: number; lng: number }>,
+  target: number,
+): { lat: number; lng: number } | null {
+  if (anchors.length === 0) return null
+  const sameSide = anchors.filter((a) => (a.num % 2) === (target % 2))
+  const pool = (sameSide.length > 0 ? sameSide : anchors).slice().sort((a, b) => a.num - b.num)
+  const below = pool.filter((a) => a.num <= target).pop()
+  const above = pool.find((a) => a.num >= target)
+  if (below && above) {
+    if (below.num === above.num) return { lat: below.lat, lng: below.lng }
+    const t = (target - below.num) / (above.num - below.num)
+    return {
+      lat: below.lat + (above.lat - below.lat) * t,
+      lng: below.lng + (above.lng - below.lng) * t,
+    }
   }
-  return ranked.slice(0, AC_MAX_RESULTS).map((r) => r.s)
+  // Fuera del rango conocido: si hay un vecino cercano en numeración se
+  // usa; si está lejano (calle con huecos) mejor no inventar.
+  const nearest = below ?? above
+  if (nearest && Math.abs(nearest.num - target) <= 4) return { lat: nearest.lat, lng: nearest.lng }
+  return null
+}
+
+/** Palabras "de tipo de vía" y artículos que se ignoran al comparar nombres
+ *  de calle: "Calle de la Elvira" ≡ "Calle Elvira", pero ninguna equivale a
+ *  "Calle Vista Elvira" (el falso positivo clásico de Atarfe). */
+const STREET_NOISE_WORDS = new Set([
+  'calle', 'avenida', 'avda', 'av', 'camino', 'paseo', 'plaza', 'glorieta',
+  'carretera', 'ctra', 'via', 'vial', 'travesia', 'calleja', 'cuesta',
+  'bajada', 'subida', 'pasaje', 'puente', 'ronda', 'urbanizacion',
+  'poligono', 'sector', 'de', 'del', 'la', 'el', 'los', 'las', 'y', 'a', 'en',
+])
+
+function streetTokenSet(text: string): Set<string> {
+  return new Set(
+    deaccent(text)
+      .split(/[^a-z0-9ñ]+/)
+      .filter((t) => t.length >= 2 && !STREET_NOISE_WORDS.has(t) && !/^\d+$/.test(t)),
+  )
+}
+
+/** ¿Los dos nombres de calle son la MISMA calle? (comparación por palabras
+ *  completas, ignorando tipo de vía y artículos). */
+function sameStreet(a: string, b: string): boolean {
+  const ta = streetTokenSet(a)
+  const tb = streetTokenSet(b)
+  if (ta.size === 0 || tb.size === 0 || ta.size !== tb.size) return false
+  for (const t of ta) if (!tb.has(t)) return false
+  return true
+}
+
+/** Quita de la frase de calle las palabras que son ciudad (sacadas del
+ *  cityLine de la propia sugerencia: "18001 Granada") para poder comparar
+ *  solo el nombre de calle. OJO: nunca del `secondary` completo, que en los
+ *  POI incluye la propia dirección y vacaría el nombre. */
+function stripCityWords(phrase: string, street: RichSuggestion): string {
+  const cityWords = new Set(
+    deaccent(street.cityLine ?? '')
+      .split(/[^a-z0-9ñ]+/)
+      .filter((w) => w.length >= 3 && !STREET_NOISE_WORDS.has(w) && !/^\d+$/.test(w)),
+  )
+  return deaccent(phrase)
+    .split(/[^a-z0-9ñ]+/)
+    .filter((t) => t.length >= 2 && !cityWords.has(t))
+    .join(' ')
+}
+
+/** Sondea Photon con los números vecinos de la calle para localizar los
+ *  portales indexados alrededor del buscado. Cada sondeo se valida: el
+ *  número debe ser exacto, la calle la MISMA (por palabras) y estar a menos
+ *  de 3 km de la calle que se está interpolando. */
+async function probePhotonAnchors(
+  streetQuery: string,
+  streetPos: { lat: number; lng: number },
+  target: number,
+  bias?: { lat: number; lng: number },
+): Promise<Array<{ num: number; lat: number; lng: number }>> {
+  const probes = [
+    ...new Set([target - 6, target - 4, target - 2, target + 2, target + 4, target + 6, target - 1, target + 1]),
+  ].filter((n) => n >= 1 && n <= 9999)
+  const results = await Promise.all(
+    probes.map(async (n): Promise<{ num: number; lat: number; lng: number } | null> => {
+      try {
+        const feats = await fetchPhoton(`${streetQuery} ${n}`, bias)
+        for (const f of feats) {
+          const p = f.properties ?? {}
+          const hn = p.housenumber ? Number.parseInt(p.housenumber, 10) : NaN
+          if (!Number.isFinite(hn) || hn !== n) continue
+          if (!p.street || !sameStreet(p.street, streetQuery)) continue
+          const c = f.geometry?.coordinates
+          const lat = c?.[1]
+          const lng = c?.[0]
+          if (typeof lat !== 'number' || typeof lng !== 'number') continue
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+          // Debe estar junto a la calle que interpolamos: evita homónimos
+          // de otras localidades ("Calle Vista Elvira" en Atarfe, a 8 km).
+          if (distanceKm(streetPos, { lat, lng }) > 3) continue
+          return { num: n, lat, lng }
+        }
+        return null
+      } catch {
+        return null
+      }
+    }),
+  )
+  return results.filter((a): a is { num: number; lat: number; lng: number } => a !== null)
 }
 
 /**
@@ -456,6 +615,9 @@ function rankSuggestions(
  *     calle de la zona aunque el portal no esté en OSM.
  *  3. Si sigue sin haber nada decente: Photon sin bbox (entregas lejanas
  *     legítimas, p. ej. "calle mayor 2, alcalá de henares").
+ *  4. Si hay número de portal pero no está indexado: se estima su posición
+ *     interpolando entre los portales vecinos de la misma calle y se añade
+ *     una entrada "Calle X 25 · portal estimado" encima de la calle entera.
  */
 export async function autocompleteAddresses(
   query: string,
@@ -469,10 +631,20 @@ export async function autocompleteAddresses(
   if (acCache.has(cacheKey)) return acCache.get(cacheKey) ?? []
 
   const match = matchOf(q)
-  const hasGood = (list: AddressSuggestion[]) =>
+  const portalNum = match.portal ? Number.parseInt(match.portal, 10) : NaN
+  const hasGood = (list: RichSuggestion[]) =>
     list.some((s) => scoreSuggestion(s, match) >= 2)
+  // Portal exacto = el número Y la MISMA calle (comparación estricta por
+  // palabras completas): "Calle Vista Elvira 15" de Atarfe NO es el portal 15
+  // de "Calle Elvira" de Granada, aunque comparta la palabra "elvira".
+  const isExactPortal = (s: RichSuggestion) =>
+    Number.isFinite(portalNum) &&
+    s.portal === portalNum &&
+    s.streetText !== undefined &&
+    sameStreet(s.streetText, stripCityWords(match.phrase, s))
+  const hasExactPortal = (list: RichSuggestion[]) => list.some(isExactPortal)
 
-  const collected: AddressSuggestion[] = []
+  const collected: RichSuggestion[] = []
 
   // 1. Photon dentro de la zona de reparto
   try {
@@ -482,9 +654,9 @@ export async function autocompleteAddresses(
   }
 
   // 2. Nominatim acotado. SIEMPRE que la consulta traiga número de portal
-  //    (Photon es flojo con "calle + número": portales sin indexar) y
-  //    también si Photon no encontró nada que encaje.
-  if (match.portal || !hasGood(collected)) {
+  //    sin resolver por Photon (Photon es flojo con "calle + número":
+  //    portales sin indexar) y también si Photon no encontró nada decente.
+  if (!hasExactPortal(collected) && (match.portal || !hasGood(collected))) {
     try {
       if (await takeNominatimSlot()) {
         collected.push(...(await searchNominatimSuggestions(q, bias)))
@@ -500,6 +672,64 @@ export async function autocompleteAddresses(
       collected.push(...(await searchPhoton(q, bias)))
     } catch {
       /* sin más opciones */
+    }
+  }
+
+  // 4. Portal a nivel de edificio: número exacto → entrada "plana";
+  //    número sin indexar → posición interpolada entre portales vecinos.
+  if (Number.isFinite(portalNum) && portalNum >= 1) {
+    const exact = collected.find(isExactPortal)
+    if (exact) {
+      // El portal vino en un POI ("Hotel X | Calle Gran Vía 25"): añadir
+      // también la dirección llana, que es lo que espera seleccionar.
+      if (exact.streetText && scoreSuggestion(exact, match) < 4) {
+        const main = `${exact.streetText} ${match.portal}`
+        const secondary = exact.cityLine ?? exact.secondary
+        collected.unshift({
+          ...exact,
+          main,
+          secondary,
+          label: [main, secondary].filter(Boolean).join(', '),
+        })
+      }
+    } else {
+      // Buscar la entrada de CALLE pura (sin portal, mismo nombre) sobre la
+      // que interpolar la posición del número pedido.
+      const streetPick = collected
+        .filter(
+          (s) =>
+            scoreSuggestion(s, match) >= 2 &&
+            !s.approximate &&
+            s.portal === undefined &&
+            s.streetText &&
+            sameStreet(s.streetText, stripCityWords(match.phrase, s)),
+        )
+        .sort(
+          (a, b) =>
+            scoreSuggestion(b, match) - scoreSuggestion(a, match) ||
+            (bias ? distanceKm(bias, a) - distanceKm(bias, b) : 0),
+        )[0]
+      if (streetPick) {
+        const streetQuery = stripCityWords(match.phrase, streetPick)
+        const anchors = await probePhotonAnchors(streetQuery, streetPick, portalNum, bias)
+        const pos = interpolatePortal(anchors, portalNum)
+        if (pos) {
+          const main = `${streetPick.main} ${match.portal}`.replace(/\s+/g, ' ')
+          const cityLine = streetPick.cityLine ?? ''
+          const secondary = [cityLine, 'portal estimado'].filter(Boolean).join(' · ')
+          collected.unshift({
+            lat: pos.lat,
+            lng: pos.lng,
+            main,
+            secondary,
+            label: [main, cityLine].filter(Boolean).join(', '),
+            portal: portalNum,
+            streetText: streetPick.streetText,
+            cityLine: streetPick.cityLine,
+            approximate: true,
+          })
+        }
+      }
     }
   }
 
