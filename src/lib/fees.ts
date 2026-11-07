@@ -1,23 +1,26 @@
 /**
  * Tarifas de reparto por distancia.
  *
- * La tarifa se calcula al RECGER el pedido: el repartidor introduce (o
+ * La tarifa se calcula al RECOGER el pedido: el repartidor introduce (o
  * confirma) la dirección de entrega, se mide la distancia desde el
- * restaurante y se aplica esta fórmula:
+ * restaurante y se aplica esta tarifa plana de dos tramos:
  *
- *   tarifa = BASE + PER_KM × km adicionales (en tramos de 500 m)
+ *   · hasta FEE_THRESHOLD_KM (2 km)  →  FEE_SHORT_EUR (3,00 €)
+ *   · lo que exceda FEE_THRESHOLD_KM →  FEE_LONG_EUR  (4,00 €)
  *
- * Ejemplos: hasta 1,5 km → 2,50 € · 2,4 km → 3,50 € · 3,2 km → 4,50 €
+ * Ejemplos: 0,8 km → 3,00 € · 2,0 km → 3,00 € · 2,1 km → 4,00 € · 5 km → 4,00 €
  *
  * ⚙️ Para ajustar precios, cambia solo las constantes de abajo. Se usan
  * tanto en el servidor (cálculo definitivo que se guarda) como en la UI
  * (previsualización en vivo para el repartidor).
  */
 
-export const FEE_BASE_EUR = 2.5 // tarifa base (incluye FEE_BASE_KM km)
-export const FEE_BASE_KM = 1.5 // km incluidos en la base
-export const FEE_PER_KM_EUR = 1.0 // € por km adicional
-export const FEE_STEP_KM = 0.5 // tramos de 500 m
+/** Distancia límite del tramo corto, en km. */
+export const FEE_THRESHOLD_KM = 2
+/** Tarifa para entregas dentro del tramo corto (≤ FEE_THRESHOLD_KM). */
+export const FEE_SHORT_EUR = 3
+/** Tarifa para entregas que superan el tramo corto (> FEE_THRESHOLD_KM). */
+export const FEE_LONG_EUR = 4
 
 /** Distancia haversine (línea recta) entre dos puntos, en km. */
 export function haversineKm(
@@ -42,16 +45,13 @@ function round2(n: number): number {
 
 /**
  * Tarifa en euros para una distancia dada.
- * Los km adicionales se cobran en tramos de FEE_STEP_KM (500 m empezados
- * cuentan como tramo completo).
+ * Tramo único: 3,00 € hasta 2 km; 4,00 € a partir de ahí.
  */
 export function feeForDistanceKm(km: number): number {
-  const extra = Math.max(0, km - FEE_BASE_KM)
-  const steps = Math.ceil(extra / FEE_STEP_KM)
-  return round2(FEE_BASE_EUR + steps * FEE_PER_KM_EUR * FEE_STEP_KM)
+  return round2(km <= FEE_THRESHOLD_KM ? FEE_SHORT_EUR : FEE_LONG_EUR)
 }
 
-/** Formatea un importe en euros al estilo español: "3,50 €". */
+/** Formatea un importe en euros al estilo español: "3,00 €". */
 export function formatEur(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '—'
   return `${n.toLocaleString('es-ES', {
@@ -60,14 +60,14 @@ export function formatEur(n: number | null | undefined): string {
   })} €`
 }
 
-/** Explicación de la fórmula para mostrarla en la UI (liquidación, diálogo…). */
+/** Explicación de la tarifa para mostrarla en la UI (liquidación, diálogo…). */
 export function feeExplanation(): string {
-  return `${FEE_BASE_EUR.toLocaleString('es-ES', {
+  return `${FEE_SHORT_EUR.toLocaleString('es-ES', {
     minimumFractionDigits: 2,
-  })} € base hasta ${FEE_BASE_KM.toLocaleString('es-ES')} km + ${FEE_PER_KM_EUR.toLocaleString(
+  })} € hasta ${FEE_THRESHOLD_KM.toLocaleString('es-ES')} km · ${FEE_LONG_EUR.toLocaleString(
     'es-ES',
     { minimumFractionDigits: 2 },
-  )} € por cada km adicional (tramos de ${FEE_STEP_KM * 1000} m)`
+  )} € a partir de ahí`
 }
 
 /** Distancia legible: "1,2 km" / "850 m". */
