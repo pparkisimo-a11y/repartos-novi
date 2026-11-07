@@ -49,6 +49,7 @@ export async function GET(req: Request) {
   }
 
   // Restaurant: only own deliveries. Location already known to them.
+  // El restaurante ve la tarifa REAL (lo que paga) — sin comisión descuentada.
   const where = scope === 'active'
     ? { restaurantId: session.id, status: { in: ['PENDING', 'ACCEPTED', 'PICKED_UP'] } }
     : { restaurantId: session.id }
@@ -58,8 +59,7 @@ export async function GET(req: Request) {
     take: scope === 'active' ? 20 : 200,
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
-  const commission = await getCommissionEur()
-  return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d, false, commission)) })
+  return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d, false, 0)) })
 }
 
 export async function POST(req: Request) {
@@ -110,9 +110,8 @@ export async function POST(req: Request) {
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
 
-  // El restaurante ve la tarifa neta (con comisión descuentada)
-  const commission = await getCommissionEur()
-  const dto = serializeDelivery(delivery, false, commission)
+  // El restaurante ve la tarifa real (lo que paga) — sin comisión.
+  const dto = serializeDelivery(delivery, false, 0)
 
   // Notify all drivers; each client beeps only when the delivery is routed to
   // them (payload.assignedDriverIds) and silently refreshes otherwise.
