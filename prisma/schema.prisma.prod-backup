@@ -1,0 +1,128 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+}
+
+model Driver {
+  id          String             @id @default(cuid())
+  username    String             @unique
+  password    String
+  name        String
+  createdAt   DateTime           @default(now())
+  restaurants RestaurantDriver[]
+  deliveries  Delivery[]
+}
+
+model Restaurant {
+  id             String             @id @default(cuid())
+  name           String
+  username       String             @unique
+  password       String
+  address        String
+  lat            Float
+  lng            Float
+  createdAt      DateTime           @default(now())
+  deliveries     Delivery[]
+  convertedLeads Lead[]             @relation("ConvertedLeads")
+  drivers        RestaurantDriver[]
+}
+
+// Asignación N:M — un restaurante puede tener VARIOS repartidores y un
+// repartidor lleva varios restaurantes. Las peticiones de reparto del local
+// llegan a TODOS sus repartidores; el primero que acepta se queda el pedido
+// (queda registrado en Delivery.driverId para la liquidación).
+model RestaurantDriver {
+  restaurantId String
+  driverId     String
+  assignedAt   DateTime   @default(now())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  driver       Driver     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@id([restaurantId, driverId])
+  @@index([driverId])
+}
+
+model Lead {
+  id           String   @id @default(cuid())
+  restaurantName String
+  contactName  String?
+  phone        String?
+  message      String?
+  status       String   @default("PENDING") // PENDING | CONTACTED | CONVERTED | REJECTED
+  notes        String?
+  createdAt    DateTime @default(now())
+  contactedAt  DateTime?
+  convertedAt  DateTime?
+  convertedRestaurantId String?
+  convertedRestaurant   Restaurant? @relation("ConvertedLeads", fields: [convertedRestaurantId], references: [id])
+
+  @@index([status])
+}
+
+// Web Push subscriptions (iPhone/Android PWA notifications).
+// One row per device/browser that granted notification permission; the server
+// sends push messages to these endpoints (VAPID) so alerts arrive even with
+// the app closed.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  role      String // 'driver' | 'restaurant'
+  userId    String // driver id or restaurant id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role, userId])
+}
+
+model Delivery {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  status       String     @default("PENDING") // PENDING | ACCEPTED | PICKED_UP | DELIVERED | REJECTED | CANCELLED
+  requestedAt  DateTime   @default(now())
+  acceptedAt   DateTime?
+  pickedUpAt   DateTime?
+  deliveredAt  DateTime?
+  rejectedAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  // Nombre/anotación del pedido que el restaurante puede añadir al solicitar
+  // (p. ej. el nombre del cliente) — el repartidor lo ve y puede completarlo
+  // al recoger.
+  customerName String?
+
+  // Repartidor que ACEPTÓ el reparto (el primero que pulsa; los demás quedan
+  // fuera). Se usa para la liquidación por repartidor de cada local.
+  driverId     String?
+  driver       Driver?    @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  // Datos de la entrega, rellenados por el repartidor al recoger el pedido.
+  // La tarifa se calcula con la distancia desde el restaurante a esta
+  // dirección (ver src/lib/fees.ts) y queda guardada junto al pedido.
+  dropoffAddress String?
+  dropoffLat     Float?
+  dropoffLng     Float?
+  distanceKm     Float?
+  fee            Float?
+
+  @@index([restaurantId])
+  @@index([status])
+  @@index([driverId])
+}
