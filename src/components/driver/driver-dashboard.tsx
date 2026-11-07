@@ -786,6 +786,9 @@ function OrderCard({
     : null
 
   // Resumen siempre visible con la tarjeta plegada: a dónde ir y de quién es.
+  // ACCEPTED: "Recoger en Kebab, pedido para Ana" — el repartidor sabe a qué
+  // nombre va antes de recoger (la dirección la confirma en el diálogo).
+  // PICKED_UP: "Entregar en [dirección]" — ya tiene la dirección.
   const summary = !isPending && (
     delivery.status === 'ACCEPTED' ? (
       <>
@@ -793,16 +796,10 @@ function OrderCard({
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
           Recoger en{' '}
           <strong className="text-foreground">{delivery.restaurantName}</strong>
-          {', entregar en '}
-          {delivery.dropoffAddress ? (
-            <strong className="text-foreground">{delivery.dropoffAddress}</strong>
-          ) : (
-            'dirección pendiente'
-          )}
           {delivery.customerName && (
             <>
-              {' · '}
-              <span className="font-semibold text-foreground">{delivery.customerName}</span>
+              {', pedido para '}
+              <strong className="text-foreground">{delivery.customerName}</strong>
             </>
           )}
         </span>
