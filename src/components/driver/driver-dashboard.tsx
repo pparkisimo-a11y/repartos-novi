@@ -793,13 +793,18 @@ function OrderCard({
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
           Recoger en{' '}
           <strong className="text-foreground">{delivery.restaurantName}</strong>
+          {', entregar en '}
+          {delivery.dropoffAddress ? (
+            <strong className="text-foreground">{delivery.dropoffAddress}</strong>
+          ) : (
+            'dirección pendiente'
+          )}
           {delivery.customerName && (
             <>
               {' · '}
               <span className="font-semibold text-foreground">{delivery.customerName}</span>
             </>
           )}
-          <span className="hidden sm:inline"> · {delivery.restaurantAddress}</span>
         </span>
       </>
     ) : (
