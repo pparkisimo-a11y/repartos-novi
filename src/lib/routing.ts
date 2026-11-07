@@ -30,13 +30,6 @@ const OSRM_SERVERS = [
 const USER_AGENT = 'RepartosNOVI/1.0 (repartos.novi@gmail.com)'
 const CACHE_LIMIT = 300
 
-// Tope de desvío: la distancia por carretera nunca se tarifica por encima
-// de 1,4 × la línea recta. En calles normales OSRM da 1,1–1,3 × y pasa tal
-// cual; el tope protege de rutas absurdas del perfil coche (zonas
-// peatonales del centro, sentidos únicos) que un repartidor en moto sí
-// atraviesa. Así la tarifa siempre es justa.
-const MAX_DETOUR_FACTOR = 1.4
-
 // Factor de desvío cuando TODOS los OSRM fallan: 1,3 × la línea recta es lo
 // que recorre de media una moto en ciudad (calles en cuadrícula, sentidos
 // únicos, rotondas). Nunca se usa la línea recta pura.
@@ -127,9 +120,9 @@ export async function deliveryDistanceKm(
   const straight = round2(haversineKm(from, to))
   const road = await roadDistanceKm(from, to)
   if (road != null) {
-    // Por carretera, pero con tope de desvío sobre la línea recta
-    const km = Math.max(straight, Math.min(road, straight * MAX_DETOUR_FACTOR))
-    return { km: round2(km), method: 'road' }
+    // Distancia real por carretera tal cual la da OSRM (perfil coche).
+    // Sin tope de desvío: la ruta es la que es, como en Google Maps.
+    return { km: road, method: 'road' }
   }
   // Fallback: 1,3× línea recta (aproximación realista moto en ciudad)
   return { km: round2(straight * FALLBACK_DETOUR_FACTOR), method: 'road' }
