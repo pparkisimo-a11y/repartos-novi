@@ -61,6 +61,18 @@ export interface DeliveryDTO {
   fee: number | null
 }
 
+/** Sugerencia de dirección del autocomplete (estilo Google Maps) que usa el
+ *  repartidor al recoger el pedido. `main` es la línea principal ("Calle
+ *  Mayor 5") y `secondary` el contexto ("28013 Madrid"). */
+export interface AddressSuggestion {
+  lat: number
+  lng: number
+  main: string
+  secondary: string
+  /** Dirección completa normalizada, la que se guarda en el pedido. */
+  label: string
+}
+
 export const STATUS_LABELS: Record<DeliveryStatus, string> = {
   PENDING: 'Pendiente',
   ACCEPTED: 'Aceptado',

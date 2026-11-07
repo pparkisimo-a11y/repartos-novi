@@ -16,11 +16,14 @@ export function MapView({
   lng,
   label,
   className,
+  compact,
 }: {
   lat: number
   lng: number
   label?: string
   className?: string
+  /** Altura reducida para diálogos. */
+  compact?: boolean
 }) {
   const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox(
     lat,
@@ -34,7 +37,7 @@ export function MapView({
         <iframe
           title="Ubicación del restaurante"
           src={src}
-          className="h-52 w-full sm:h-56"
+          className={compact ? 'h-36 w-full' : 'h-52 w-full sm:h-56'}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
         />
@@ -48,7 +51,7 @@ export function MapView({
       <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 p-3">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Coordenadas</p>
-          <p className="font-mono text-xs">
+          <p className="font-mono text-xs whitespace-nowrap">
             {lat.toFixed(5)}, {lng.toFixed(5)}
           </p>
         </div>

@@ -1,4 +1,4 @@
-import type { AppUser, DeliveryDTO, StatsResponse } from './types'
+import type { AddressSuggestion, AppUser, DeliveryDTO, StatsResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -173,6 +173,37 @@ export const api = {
     }
     return request<{ result: { lat: number; lng: number; label?: string } | null }>(
       `/api/util/geocode?${qs.toString()}`,
+    )
+  },
+
+  /** Sugerencias de dirección (estilo Google Maps) mientras el repartidor
+   *  escribe. `bias` (posición del restaurante) prioriza resultados cercanos. */
+  autocomplete: (q: string, bias?: { lat: number; lng: number }) => {
+    const qs = new URLSearchParams({ q })
+    if (bias) {
+      qs.set('lat', String(bias.lat))
+      qs.set('lng', String(bias.lng))
+    }
+    return request<{ suggestions: AddressSuggestion[] }>(
+      `/api/util/autocomplete?${qs.toString()}`,
+    )
+  },
+
+  /** Distancia del reparto (por carretera si es posible) entre el
+   *  restaurante y el destino seleccionado. Misma función que usa el
+   *  servidor al guardar, así la tarifa previsualizada es la definitiva. */
+  routeDistance: (
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number },
+  ) => {
+    const qs = new URLSearchParams({
+      flat: String(from.lat),
+      flng: String(from.lng),
+      tlat: String(to.lat),
+      tlng: String(to.lng),
+    })
+    return request<{ km: number; method: 'road' | 'straight' }>(
+      `/api/util/route-distance?${qs.toString()}`,
     )
   },
 

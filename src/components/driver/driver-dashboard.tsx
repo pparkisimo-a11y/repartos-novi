@@ -38,9 +38,10 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
-import type { AppUser, DeliveryDTO } from '@/lib/types'
+import type { AddressSuggestion, AppUser, DeliveryDTO } from '@/lib/types'
 import { StatusBadge } from '@/components/status-badge'
 import { MapView } from './map-view'
+import { AddressAutocomplete } from './address-autocomplete'
 import { StatsView } from '@/components/shared/stats-view'
 import { HistoryView } from '@/components/shared/history-view'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
@@ -472,11 +473,11 @@ function OrderCard({
     <Card className="overflow-hidden p-0 shadow-sm">
       {/* Orange header */}
       <div className="flex items-center justify-between gap-3 bg-primary px-5 py-3.5 text-white">
-        <div className="flex items-center gap-2 font-bold">
-          <Bell className="h-4 w-4" />
-          Pedido #{delivery.id.slice(-6).toUpperCase()}
+        <div className="flex min-w-0 items-center gap-2 font-bold">
+          <Bell className="h-4 w-4 shrink-0" />
+          <span className="truncate">Pedido #{delivery.id.slice(-6).toUpperCase()}</span>
         </div>
-        <div className="flex items-center gap-1.5 text-sm font-medium">
+        <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
           <Clock className="h-4 w-4" />
           <span className="text-white/80">Tiempo:</span>
           <span className="font-bold">{elapsedMin} min</span>
@@ -629,9 +630,10 @@ function OrderCard({
 }
 
 /**
- * Diálogo de RECOGIDA: el repartidor confirma el nombre del cliente e
- * introduce la dirección de entrega. Con la distancia (geocodificada o a
- * mano) se calcula y guarda la tarifa del reparto junto con el pedido.
+ * Diálogo de RECOGIDA: el repartidor confirma el nombre del cliente y
+ * elige la dirección de entrega en el AUTOCOMPLETE con sugerencias en vivo
+ * (estilo Google Maps). Al seleccionar el destino se calculan la distancia
+ * real por carretera y la tarifa, que se guardan junto con el pedido.
  */
 function PickupDialog({
   delivery,
@@ -645,8 +647,9 @@ function PickupDialog({
   const [customerName, setCustomerName] = useState('')
   const [address, setAddress] = useState('')
   const [manualKm, setManualKm] = useState('')
-  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null)
-  const [geoState, setGeoState] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle')
+  const [selected, setSelected] = useState<AddressSuggestion | null>(null)
+  const [route, setRoute] = useState<{ km: number; method: 'road' | 'straight' } | null>(null)
+  const [routeLoading, setRouteLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const open = !!delivery
@@ -657,48 +660,35 @@ function PickupDialog({
       setCustomerName(delivery.customerName || '')
       setAddress('')
       setManualKm('')
-      setGeo(null)
-      setGeoState('idle')
+      setSelected(null)
+      setRoute(null)
+      setRouteLoading(false)
     }
   }, [delivery])
 
-  // Geocodificación con debounce (mínimo 5 caracteres)
-  useEffect(() => {
+  /** El repartidor eligió una dirección del desplegable: coordenadas exactas
+   *  → tarifa en vivo. Primero línea recta (instantáneo) y luego la distancia
+   *  real por carretera, que es la que se guarda. */
+  function handleSelect(s: AddressSuggestion) {
+    setSelected(s)
     if (!delivery) return
-    const q = address.trim()
-    if (q.length < 5) {
-      setGeo(null)
-      setGeoState('idle')
-      return
-    }
-    setGeoState('searching')
-    const t = setTimeout(async () => {
-      try {
-        // Sesgo: buscar cerca del restaurante (evita matches de otras ciudades)
-        const res = await api.geocode(q, { lat: delivery.lat, lng: delivery.lng })
-        if (res.result) {
-          setGeo({ lat: res.result.lat, lng: res.result.lng })
-          setGeoState('found')
-        } else {
-          setGeo(null)
-          setGeoState('notfound')
-        }
-      } catch {
-        setGeo(null)
-        setGeoState('notfound')
-      }
-    }, 750)
-    return () => clearTimeout(t)
-  }, [address, delivery])
+    const from = { lat: delivery.lat, lng: delivery.lng }
+    // Feedback inmediato con línea recta mientras llega la ruta real
+    setRoute({ km: haversineKm(from, s), method: 'straight' })
+    setRouteLoading(true)
+    api
+      .routeDistance(from, s)
+      .then((r) => setRoute({ km: r.km, method: r.method }))
+      .catch(() => {
+        /* se queda la línea recta: el servidor la recalcula al guardar */
+      })
+      .finally(() => setRouteLoading(false))
+  }
 
-  // Distancia y tarifa en vivo (km manuales manda sobre la geocodificación)
+  // Distancia y tarifa en vivo (km manuales mandan sobre el mapa)
   const manualKmNum = Number(manualKm.replace(',', '.'))
   const manualValid = manualKm.trim() !== '' && Number.isFinite(manualKmNum) && manualKmNum > 0
-  const distanceKm = manualValid
-    ? manualKmNum
-    : geo && delivery
-      ? haversineKm({ lat: delivery.lat, lng: delivery.lng }, geo)
-      : null
+  const distanceKm = manualValid ? manualKmNum : route?.km ?? null
   const fee = distanceKm != null ? feeForDistanceKm(distanceKm) : null
 
   const canSubmit = address.trim().length >= 4 && distanceKm != null && !submitting
@@ -712,8 +702,8 @@ function PickupDialog({
         dropoffAddress: address.trim(),
         ...(manualValid
           ? { distanceKm: manualKmNum }
-          : geo
-            ? { dropoffLat: geo.lat, dropoffLng: geo.lng }
+          : selected
+            ? { dropoffLat: selected.lat, dropoffLng: selected.lng }
             : {}),
       })
       toast.success('Pedido recogido', {
@@ -765,39 +755,56 @@ function PickupDialog({
 
           <div className="space-y-2">
             <Label htmlFor="pu-address">Dirección de entrega *</Label>
-            <Input
+            <AddressAutocomplete
               id="pu-address"
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Calle, número, ciudad"
-              maxLength={200}
+              onChange={setAddress}
+              onSelect={handleSelect}
+              onSelectionCleared={() => {
+                setSelected(null)
+                setRoute(null)
+              }}
+              bias={delivery ? { lat: delivery.lat, lng: delivery.lng } : undefined}
+              placeholder="Calle y número…"
             />
-            {/* Estado de la búsqueda */}
-            {geoState === 'searching' && (
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Buscando dirección…
-              </p>
-            )}
-            {geoState === 'found' && distanceKm != null && (
+
+            {/* Dirección seleccionada → distancia + tarifa en vivo */}
+            {selected && route && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                 <span className="flex items-center gap-1.5 text-sm text-emerald-700">
-                  <MapPin className="h-4 w-4" />
-                  ≈ {formatKm(distanceKm)} desde {delivery?.restaurantName}
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  {formatKm(route.km)}{' '}
+                  {routeLoading
+                    ? '(calculando ruta…)'
+                    : route.method === 'road'
+                      ? 'por carretera'
+                      : 'en línea recta'}{' '}
+                  desde {delivery?.restaurantName}
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white">
-                  <Euro className="h-3.5 w-3.5" />
+                <span className="inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white">
                   {formatEur(fee)}
                 </span>
               </div>
             )}
-            {geoState === 'notfound' && (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                No encontramos esta dirección en el mapa. Introduce la distancia
-                a mano para calcular la tarifa.
+
+            {/* Guía: falta seleccionar una dirección del desplegable */}
+            {!selected && address.trim().length >= 4 && (
+              <p className="text-xs text-muted-foreground">
+                Selecciona una dirección del desplegable para calcular la
+                distancia y la tarifa automáticamente.
               </p>
             )}
           </div>
+
+          {/* Vista del destino elegido + abrir en Google Maps */}
+          {selected && (
+            <MapView
+              lat={selected.lat}
+              lng={selected.lng}
+              label={selected.main}
+              compact
+            />
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="pu-km" className="flex items-center gap-1.5 text-muted-foreground">
@@ -828,7 +835,8 @@ function PickupDialog({
             <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
               <strong className="text-foreground">Cómo se calcula la tarifa:</strong>{' '}
-              {feeExplanation()}.
+              {feeExplanation()}. La distancia se mide por carretera desde el
+              local hasta la dirección elegida.
             </p>
           </div>
         </div>

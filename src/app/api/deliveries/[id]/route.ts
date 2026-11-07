@@ -4,7 +4,8 @@ import { getSessionFromRequest } from '@/lib/session'
 import { realtimeEmit } from '@/lib/realtime'
 import { sendPush } from '@/lib/push'
 import { geocodeAddress } from '@/lib/geocode'
-import { haversineKm, feeForDistanceKm } from '@/lib/fees'
+import { feeForDistanceKm } from '@/lib/fees'
+import { deliveryDistanceKm } from '@/lib/routing'
 import { serializeDelivery, DELIVERY_RESTAURANT_INCLUDE, type DeliveryStatus } from '@/lib/delivery'
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -125,7 +126,10 @@ export async function PATCH(
     const dropoffAddress = String(body.dropoffAddress || '').trim().slice(0, 200) || null
     data.dropoffAddress = dropoffAddress
 
-    // Distancia: prioridad → km manuales > coordenadas del cliente > geocodificar
+    // Distancia: prioridad → km manuales > coordenadas del destino
+    // (seleccionadas en el autocomplete) > geocodificar la dirección.
+    // Con coordenadas se usa la distancia POR CARRETERA (OSRM) — la misma
+    // que previsualiza el repartidor al elegir la dirección.
     let distanceKm: number | null = null
     let dropoffLat: number | null = null
     let dropoffLng: number | null = null
@@ -133,33 +137,21 @@ export async function PATCH(
     const manualKm = Number(body.distanceKm)
     const lat = Number(body.dropoffLat)
     const lng = Number(body.dropoffLng)
+    const restaurantPos = { lat: delivery.restaurant.lat, lng: delivery.restaurant.lng }
 
     if (Number.isFinite(manualKm) && manualKm > 0 && manualKm <= 100) {
       distanceKm = round2(manualKm)
     } else if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
       dropoffLat = lat
       dropoffLng = lng
-      distanceKm = round2(
-        haversineKm(
-          { lat: delivery.restaurant.lat, lng: delivery.restaurant.lng },
-          { lat, lng },
-        ),
-      )
+      distanceKm = (await deliveryDistanceKm(restaurantPos, { lat, lng })).km
     } else if (dropoffAddress) {
       // Geocodificación en el servidor, sesgada al entorno del restaurante
-      const geo = await geocodeAddress(dropoffAddress, {
-        lat: delivery.restaurant.lat,
-        lng: delivery.restaurant.lng,
-      })
+      const geo = await geocodeAddress(dropoffAddress, restaurantPos)
       if (geo) {
         dropoffLat = geo.lat
         dropoffLng = geo.lng
-        distanceKm = round2(
-          haversineKm(
-            { lat: delivery.restaurant.lat, lng: delivery.restaurant.lng },
-            { lat: geo.lat, lng: geo.lng },
-          ),
-        )
+        distanceKm = (await deliveryDistanceKm(restaurantPos, geo)).km
       }
     }
 
