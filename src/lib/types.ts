@@ -16,7 +16,12 @@ export interface RestaurantUser {
 export interface DriverUser {
   id: string
   name: string
+  username: string
   role: 'driver'
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
+  isSuperDriver: boolean
 }
 
 export interface AdminUser {
@@ -56,6 +61,9 @@ export interface DeliveryDTO {
   /** Repartidor que aceptó el reparto (null hasta que alguien lo tome). */
   driverId: string | null
   driverName: string | null
+  /** Repartidor al que se le ofrece ahora (asignación secuencial). */
+  currentAssigneeId: string | null
+  currentAssigneeName: string | null
   /** Nombre/anotación del pedido (opcional, la pone el restaurante al solicitar). */
   customerName: string | null
   /** Datos de la entrega, rellenados por el repartidor al recoger. */

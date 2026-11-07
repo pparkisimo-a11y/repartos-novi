@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 import { requireAdminFromRequest } from '@/lib/session'
-import { updateDriverPassword, updateDriverName, deleteDriver } from '@/lib/admin-drivers'
+import { updateDriverPassword, updateDriverName, deleteDriver, updateDriverSchedule, toggleSuperDriver } from '@/lib/admin-drivers'
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireAdminFromRequest(req)
+    await requireAdminFromRequest(req)
     const { id } = await params
     const body = await req.json().catch(() => ({}))
     const action = String(body.action || '')
@@ -22,6 +22,22 @@ export async function PATCH(
       const res = await updateDriverName(id, String(body.name || ''))
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
       return NextResponse.json({ ok: true })
+    }
+
+    if (action === 'update-schedule') {
+      const res = await updateDriverSchedule(id, {
+        scheduleDays: body.scheduleDays,
+        scheduleStart: body.scheduleStart,
+        scheduleEnd: body.scheduleEnd,
+      })
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
+      return NextResponse.json({ driver: res.driver })
+    }
+
+    if (action === 'toggle-super') {
+      const res = await toggleSuperDriver(id, Boolean(body.value))
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
+      return NextResponse.json({ driver: res.driver })
     }
 
     return NextResponse.json({ error: 'Acción no soportada' }, { status: 400 })

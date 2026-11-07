@@ -50,6 +50,9 @@ export interface DeliveryDTO {
   /** Repartidor que aceptó el reparto (null hasta que alguien lo tome). */
   driverId: string | null
   driverName: string | null
+  /** Repartidor al que se le ofrece ahora (asignación secuencial). */
+  currentAssigneeId: string | null
+  currentAssigneeName: string | null
   /** Nombre/anotación del pedido (opcional, la pone el restaurante al solicitar). */
   customerName: string | null
   /** Datos de la entrega, rellenados por el repartidor al recoger. */
@@ -90,6 +93,8 @@ interface DeliveryWithRestaurant {
     drivers?: Array<{ driverId: string; driver?: { name: string } | null }>
   }
   driver?: { id: string; name: string } | null
+  currentAssignee?: { id: string; name: string } | null
+  currentAssigneeId?: string | null
 }
 
 /**
@@ -130,6 +135,8 @@ export function serializeDelivery(
     assignedDriverNames: assignments.map((a) => a.driver?.name ?? '—'),
     driverId: d.driver?.id ?? d.driverId ?? null,
     driverName: d.driver?.name ?? null,
+    currentAssigneeId: d.currentAssignee?.id ?? d.currentAssigneeId ?? null,
+    currentAssigneeName: d.currentAssignee?.name ?? null,
     customerName: d.customerName ?? null,
     dropoffAddress: d.dropoffAddress ?? null,
     distanceKm: d.distanceKm ?? null,
@@ -156,4 +163,5 @@ export const DELIVERY_RESTAURANT_INCLUDE = {
     },
   },
   driver: { select: { id: true, name: true } },
+  currentAssignee: { select: { id: true, name: true } },
 } as const

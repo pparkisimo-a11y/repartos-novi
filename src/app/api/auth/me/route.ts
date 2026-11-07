@@ -26,13 +26,13 @@ export async function GET(req: Request) {
     // Refresh the driver from DB: if the account was deleted, force logout.
     const driver = await db.driver.findUnique({
       where: { id: session.id },
-      select: { id: true, name: true, username: true },
+      select: { id: true, name: true, username: true, scheduleDays: true, scheduleStart: true, scheduleEnd: true, isSuperDriver: true },
     })
     if (!driver) {
       return NextResponse.json({ user: null })
     }
     return NextResponse.json({
-      user: { id: driver.id, name: driver.name, username: driver.username, role: 'driver' },
+      user: { ...driver, role: 'driver' },
     })
   }
 

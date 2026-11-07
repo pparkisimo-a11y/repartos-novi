@@ -31,6 +31,7 @@ export async function PATCH(
   const { id } = await params
   const body = await req.json().catch(() => ({}))
   const nextStatus = String(body.status || '').toUpperCase() as DeliveryStatus
+  const action = String(body.action || '')
 
   const delivery = await db.delivery.findUnique({
     where: { id },
@@ -38,6 +39,53 @@ export async function PATCH(
   })
   if (!delivery) {
     return NextResponse.json({ error: 'Reparto no encontrado' }, { status: 404 })
+  }
+
+  // ¿Es súper repartidor? (puede robar pedidos)
+  let isSuperDriver = false
+  if (session.role === 'driver') {
+    const d = await db.driver.findUnique({ where: { id: session.id }, select: { isSuperDriver: true } })
+    isSuperDriver = !!d?.isSuperDriver
+  }
+  const now = new Date()
+
+  // ---------- ROBAR: el súper repartidor se queda un pedido de otro ----------
+  // Se procesa ANTES de la validación de transiciones (no usa nextStatus).
+  if (action === 'steal') {
+    if (session.role !== 'driver' || !isSuperDriver) {
+      return NextResponse.json({ error: 'Solo un súper repartidor puede robar pedidos' }, { status: 403 })
+    }
+    // Se puede robar/tomar cualquier PENDING o ACCEPTED (incluso sin asignar)
+    if (!['PENDING', 'ACCEPTED'].includes(delivery.status)) {
+      return NextResponse.json({ error: 'Este pedido ya no se puede robar (está recogido o entregado)' }, { status: 409 })
+    }
+    const previousDriverId = delivery.driverId
+    const wasAccepted = delivery.status === 'ACCEPTED'
+    const stealData: Record<string, unknown> = {
+      driverId: session.id,
+      currentAssigneeId: null,
+      acceptedAt: delivery.acceptedAt || now,
+      status: 'ACCEPTED',
+    }
+    await db.delivery.update({ where: { id }, data: stealData })
+    const stolen = await db.delivery.findUnique({ where: { id }, include: DELIVERY_RESTAURANT_INCLUDE })
+    const commissionPct = await getCommissionPct()
+    const dtoStolen = serializeDelivery(stolen!, true, commissionPct)
+    // Notificar al restaurante (tarifa real) y a TODOS los repartidores (neto)
+    await realtimeEmit({ event: 'delivery:update', room: `restaurant:${delivery.restaurantId}`, payload: serializeDelivery(stolen!, false, 0) })
+    await realtimeEmit({ event: 'delivery:update', room: 'driver', payload: dtoStolen })
+    // Avisar al repartidor original (si lo había) de que le han quitado el pedido
+    if (wasAccepted && previousDriverId && previousDriverId !== session.id) {
+      await sendPush(
+        { role: 'driver', userId: previousDriverId },
+        {
+          title: 'Pedido reasignado',
+          body: `${session.name} se ha hecho cargo del pedido #${id.slice(-6).toUpperCase()} de ${delivery.restaurant.name}.`,
+          tag: `delivery-${id}`,
+        },
+      )
+    }
+    return NextResponse.json({ delivery: dtoStolen })
   }
 
   const allowed = VALID_TRANSITIONS[delivery.status] || []
@@ -49,29 +97,27 @@ export async function PATCH(
   }
 
   const assignedDriverIds = delivery.restaurant.drivers?.map((a) => a.driverId) ?? []
-  // Fallback: si el local no tiene repartidores asignados, cualquier
-  // repartidor puede tomar la petición (que nunca quede huérfana).
-  const isAssigned = assignedDriverIds.includes(session.id) || assignedDriverIds.length === 0
+  // ¿Es el repartidor al que se le ofrece ahora (asignación secuencial)?
+  const isCurrentAssignee = delivery.currentAssigneeId === session.id
   const isAcceptor = delivery.driverId === session.id
 
-  const now = new Date()
-
-  // ---------- ACEPTAR: el primero que pulsa se lo lleva ----------
+  // ---------- ACEPTAR: el repartidor actual (o súper) se lo lleva ----------
   if (nextStatus === 'ACCEPTED') {
     if (session.role !== 'driver') {
       return NextResponse.json({ error: 'Solo el repartidor puede aceptar' }, { status: 403 })
     }
-    if (!isAssigned) {
+    // Puede aceptar: el currentAssignee, o un súper (robando), o fallback si
+    // nadie está asignado (currentAssigneeId null por BD vieja).
+    if (!isCurrentAssignee && !isSuperDriver && delivery.currentAssigneeId !== null) {
       return NextResponse.json(
-        { error: 'Este reparto pertenece a otros repartidores' },
+        { error: 'Este reparto se le ha ofrecido a otro repartidor' },
         { status: 403 },
       )
     }
-    // Actualización condicional: solo gana si sigue PENDING. Si otro
-    // repartidor la aceptó antes, count === 0 y devolvemos 409.
+    // Actualización condicional: solo gana si sigue PENDING.
     const won = await db.delivery.updateMany({
       where: { id, status: 'PENDING' },
-      data: { status: 'ACCEPTED', acceptedAt: now, driverId: session.id },
+      data: { status: 'ACCEPTED', acceptedAt: now, driverId: session.id, currentAssigneeId: null },
     })
     if (won.count === 0) {
       return NextResponse.json(
@@ -92,12 +138,48 @@ export async function PATCH(
       return NextResponse.json({ error: 'Solo el repartidor puede cambiar este estado' }, { status: 403 })
     }
     if (nextStatus === 'REJECTED') {
-      if (!isAssigned) {
+      // Solo el currentAssignee puede rechazar
+      if (!isCurrentAssignee) {
         return NextResponse.json(
-          { error: 'Este reparto pertenece a otros repartidores' },
+          { error: 'Este reparto se le ha ofrecido a otro repartidor' },
           { status: 403 },
         )
       }
+      // ¿Es el último de la rotación? No puede rechazar.
+      const order = delivery.assigneeOrder ? delivery.assigneeOrder.split(',').filter(Boolean) : []
+      if (delivery.assigneeIndex >= order.length - 1) {
+        return NextResponse.json(
+          { error: 'Eres el último repartidor disponible: no puedes rechazar este pedido' },
+          { status: 403 },
+        )
+      }
+      // Avanzar al siguiente repartidor: el pedido sigue PENDING, no se rechaza
+      const nextIndex = delivery.assigneeIndex + 1
+      const nextAssigneeId = order[nextIndex] ?? null
+      await db.delivery.update({
+        where: { id },
+        data: { assigneeIndex: nextIndex, currentAssigneeId: nextAssigneeId },
+      })
+      // Notificar al siguiente repartidor
+      if (nextAssigneeId) {
+        const nextDto = serializeDelivery(
+          await db.delivery.findUnique({ where: { id }, include: DELIVERY_RESTAURANT_INCLUDE })!,
+          true,
+          await getCommissionPct(),
+        )
+        await realtimeEmit({ event: 'delivery:new', room: `driver:${nextAssigneeId}`, payload: nextDto })
+        await sendPush(
+          { role: 'driver', userId: nextAssigneeId },
+          {
+            title: 'Nueva solicitud de reparto',
+            body: `${delivery.restaurant.name} necesita repartidor${delivery.customerName ? ` — ${delivery.customerName}` : ''}`,
+            tag: `delivery-${id}`,
+          },
+        )
+      }
+      // Devolver el estado actual (sigue PENDING, no REJECTED)
+      const stillPending = await db.delivery.findUnique({ where: { id }, include: DELIVERY_RESTAURANT_INCLUDE })
+      return NextResponse.json({ delivery: serializeDelivery(stillPending!, true, await getCommissionPct()) })
     } else {
       // PICKED_UP / DELIVERED: solo el repartidor que aceptó el pedido
       if (!isAcceptor) {

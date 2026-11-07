@@ -15,6 +15,10 @@ export interface AdminDriverOut {
   createdAt: string
   restaurants: number
   services: number
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
+  isSuperDriver: boolean
 }
 
 function normalize(input: Partial<AdminDriverInput>): {
@@ -58,6 +62,10 @@ export async function listDrivers(): Promise<AdminDriverOut[]> {
     createdAt: d.createdAt.toISOString(),
     restaurants: d._count.restaurants,
     services: d._count.deliveries,
+    scheduleDays: d.scheduleDays,
+    scheduleStart: d.scheduleStart,
+    scheduleEnd: d.scheduleEnd,
+    isSuperDriver: d.isSuperDriver,
   }))
 }
 
@@ -92,6 +100,10 @@ export async function createDriver(
       createdAt: d.createdAt.toISOString(),
       restaurants: 0,
       services: 0,
+      scheduleDays: d.scheduleDays,
+      scheduleStart: d.scheduleStart,
+      scheduleEnd: d.scheduleEnd,
+      isSuperDriver: d.isSuperDriver,
     },
   }
 }
@@ -137,4 +149,80 @@ export async function deleteDriver(
   await db.pushSubscription.deleteMany({ where: { role: 'driver', userId: id } })
   await db.driver.delete({ where: { id } })
   return { ok: true }
+}
+
+export interface DriverScheduleInput {
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
+}
+
+/** Guarda el horario laboral del repartidor. Vacío = 24/7. */
+export async function updateDriverSchedule(
+  id: string,
+  input: Partial<DriverScheduleInput>,
+): Promise<{ ok: true; driver: AdminDriverOut } | { ok: false; error: string; status: number }> {
+  const existing = await db.driver.findUnique({ where: { id } })
+  if (!existing) return { ok: false, error: 'Repartidor no encontrado', status: 404 }
+
+  const days = String(input.scheduleDays ?? '')
+    .split(',')
+    .map((d) => d.trim())
+    .filter((d) => d !== '')
+    .map((d) => Number(d))
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+  const scheduleDays = [...new Set(days)].sort().join(',')
+  const scheduleStart = String(input.scheduleStart || '').trim().slice(0, 5)
+  const scheduleEnd = String(input.scheduleEnd || '').trim().slice(0, 5)
+
+  const d = await db.driver.update({
+    where: { id },
+    data: { scheduleDays, scheduleStart, scheduleEnd },
+    include: { _count: { select: { restaurants: true, deliveries: true } } },
+  })
+  return {
+    ok: true,
+    driver: {
+      id: d.id,
+      username: d.username,
+      name: d.name,
+      createdAt: d.createdAt.toISOString(),
+      restaurants: d._count.restaurants,
+      services: d._count.deliveries,
+      scheduleDays: d.scheduleDays,
+      scheduleStart: d.scheduleStart,
+      scheduleEnd: d.scheduleEnd,
+      isSuperDriver: d.isSuperDriver,
+    },
+  }
+}
+
+/** Activa/desactiva el modo súper repartidor (puede robar pedidos de otros). */
+export async function toggleSuperDriver(
+  id: string,
+  value: boolean,
+): Promise<{ ok: true; driver: AdminDriverOut } | { ok: false; error: string; status: number }> {
+  const existing = await db.driver.findUnique({ where: { id } })
+  if (!existing) return { ok: false, error: 'Repartidor no encontrado', status: 404 }
+
+  const d = await db.driver.update({
+    where: { id },
+    data: { isSuperDriver: value },
+    include: { _count: { select: { restaurants: true, deliveries: true } } },
+  })
+  return {
+    ok: true,
+    driver: {
+      id: d.id,
+      username: d.username,
+      name: d.name,
+      createdAt: d.createdAt.toISOString(),
+      restaurants: d._count.restaurants,
+      services: d._count.deliveries,
+      scheduleDays: d.scheduleDays,
+      scheduleStart: d.scheduleStart,
+      scheduleEnd: d.scheduleEnd,
+      isSuperDriver: d.isSuperDriver,
+    },
+  }
 }

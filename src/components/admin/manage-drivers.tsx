@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Users,
@@ -13,6 +13,8 @@ import {
   Package,
   AlertTriangle,
   UserRound,
+  Clock,
+  Shield,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,12 +41,14 @@ import {
 import { toast } from 'sonner'
 import { api, ApiError, type AdminDriver } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
+import { parseSchedule, scheduleLabel, DAY_SHORT } from '@/lib/schedule'
 
 export function ManageDrivers({ currentDriverId }: { currentDriverId?: string }) {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AdminDriver | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminDriver | null>(null)
+  const [scheduleTarget, setScheduleTarget] = useState<AdminDriver | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'drivers'],
@@ -161,6 +165,58 @@ export function ManageDrivers({ currentDriverId }: { currentDriverId?: string })
                   <div className="mt-3 text-xs text-muted-foreground">
                     Alta {formatDateTime(d.createdAt)}
                   </div>
+
+                  {/* Horario laboral del repartidor */}
+                  <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        Horario
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs"
+                        onClick={() => setScheduleTarget(d)}
+                      >
+                        Editar horario
+                      </Button>
+                    </div>
+                    <p className="mt-1.5 text-sm text-foreground">
+                      {scheduleLabel(parseSchedule(d.scheduleDays, d.scheduleStart, d.scheduleEnd))}
+                    </p>
+                  </div>
+
+                  {/* Súper repartidor: puede robar pedidos de otros */}
+                  <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex items-center gap-1.5">
+                      <Shield className={`h-4 w-4 ${d.isSuperDriver ? 'text-primary' : 'text-muted-foreground/50'}`} />
+                      <span className="text-xs font-semibold text-muted-foreground">Súper repartidor</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.adminToggleSuperDriver(d.id, !d.isSuperDriver)
+                          toast.success(d.isSuperDriver ? 'Súper repartidor desactivado' : 'Súper repartidor activado', {
+                            description: d.isSuperDriver
+                              ? `${d.name} ya no puede robar pedidos.`
+                              : `${d.name} ahora puede ver y robar los pedidos de todos los locales.`,
+                          })
+                          invalidate()
+                        } catch (err) {
+                          toast.error(err instanceof ApiError ? err.message : 'Error')
+                        }
+                      }}
+                      aria-pressed={d.isSuperDriver}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                        d.isSuperDriver ? 'bg-primary' : 'bg-muted-foreground/30'
+                      }`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${d.isSuperDriver ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
                   <div className="mt-4 flex gap-2">
                     <Button
                       variant="outline"
@@ -213,6 +269,14 @@ export function ManageDrivers({ currentDriverId }: { currentDriverId?: string })
           invalidate()
           setDeleteTarget(null)
           qc.invalidateQueries({ queryKey: ['admin', 'restaurants'] })
+        }}
+      />
+      <EditDriverScheduleDialog
+        target={scheduleTarget}
+        onOpenChange={(o) => !o && setScheduleTarget(null)}
+        onDone={() => {
+          invalidate()
+          setScheduleTarget(null)
         }}
       />
     </div>
@@ -470,5 +534,126 @@ function DeleteDriverDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/** Editor del horario laboral del repartidor (igual que el de restaurantes). */
+function EditDriverScheduleDialog({
+  target,
+  onOpenChange,
+  onDone,
+}: {
+  target: AdminDriver | null
+  onOpenChange: (o: boolean) => void
+  onDone: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [days, setDays] = useState<number[]>([])
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+
+  useEffect(() => {
+    if (target) {
+      const s = parseSchedule(target.scheduleDays, target.scheduleStart, target.scheduleEnd)
+      setDays(s.days)
+      setStart(s.start)
+      setEnd(s.end)
+    }
+  }, [target])
+
+  function toggleDay(d: number) {
+    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!target) return
+    setLoading(true)
+    try {
+      const scheduleDays = days.slice().sort().join(',')
+      await api.adminUpdateDriverSchedule(target.id, { scheduleDays, scheduleStart: start, scheduleEnd: end })
+      toast.success('Horario actualizado', {
+        description: scheduleLabel(parseSchedule(scheduleDays, start, end)),
+      })
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            Horario de {target?.name ?? ''}
+          </DialogTitle>
+          <DialogDescription>
+            Días y franja horaria en los que este repartidor trabaja. Fuera de
+            su horario no se le ofrecerán pedidos (se salta en la rotación).
+            Si lo dejas vacío, trabaja 24/7.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Días activos</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                const selected = days.includes(d)
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleDay(d)}
+                    aria-pressed={selected}
+                    className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2.5 text-sm font-medium transition-colors active:scale-95 ${
+                      selected
+                        ? 'border-primary bg-primary text-white'
+                        : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                    }`}
+                  >
+                    {DAY_SHORT[d]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="d-sch-start">Desde</Label>
+              <Input id="d-sch-start" type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="d-sch-end">Hasta</Label>
+              <Input id="d-sch-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Si la hora de fin es menor que la de inicio, la franja cruza medianoche.
+          </p>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <p className="font-semibold">Así quedará:</p>
+            <p className="mt-0.5">{scheduleLabel(parseSchedule(days.slice().sort().join(','), start, end))}</p>
+          </div>
+        </form>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={loading || !target}
+            className="bg-primary text-white hover:bg-primary/90"
+          >
+            {loading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Guardar horario
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

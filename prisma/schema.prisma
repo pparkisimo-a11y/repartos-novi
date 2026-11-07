@@ -24,6 +24,22 @@ model Driver {
   password    String
   name        String
   createdAt   DateTime           @default(now())
+
+  // Horario laboral: igual que los restaurantes, días + franja. Fuera de
+  // horario no se le ofrecen pedidos (se salta en la rotación secuencial).
+  scheduleDays  String           @default("")
+  scheduleStart String           @default("")
+  scheduleEnd   String           @default("")
+
+  // Súper repartidor (p. ej. Atar): ve TODOS los pedidos en curso de TODOS los
+  // locales (no solo los suyos) y puede "robar" pedidos a otros repartidores
+  // si fallan. No necesita estar asignado a un restaurante para verlo.
+  isSuperDriver Boolean          @default(false)
+
+  // Pedidos que actualmente le están ofreciendo a este repartidor (asignación
+  // secuencial). Relación inversa de Delivery.currentAssigneeId.
+  offeredDeliveries Delivery[]   @relation("OfferedDriver")
+
   restaurants RestaurantDriver[]
   deliveries  Delivery[]
 }
@@ -135,6 +151,16 @@ model Delivery {
   // fuera). Se usa para la liquidación por repartidor de cada local.
   driverId     String?
   driver       Driver?    @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  // Asignación SECUENCIAL: el pedido se ofrece a un repartidor cada vez (no a
+  // todos a la vez). Si rechaza, salta al siguiente; el último no puede
+  // rechazar. assigneeOrder = lista ordenada de IDs, assigneeIndex = posición
+  // actual, currentAssigneeId = repartidor al que le toca ahora (null si ya
+  // fue aceptado o no hay nadie disponible).
+  assigneeOrder     String  @default("")
+  assigneeIndex     Int     @default(0)
+  currentAssigneeId String?
+  currentAssignee   Driver? @relation("OfferedDriver", fields: [currentAssigneeId], references: [id], onDelete: SetNull)
 
   // Datos de la entrega, rellenados por el repartidor al recoger el pedido.
   // La tarifa se calcula con la distancia desde el restaurante a esta

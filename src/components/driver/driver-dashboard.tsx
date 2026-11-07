@@ -24,6 +24,7 @@ import {
   Navigation,
   Ruler,
   Search,
+  Shield,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -70,11 +71,23 @@ export function DriverDashboard({
   const [available, setAvailable] = useState(true)
   const [pickupTarget, setPickupTarget] = useState<DeliveryDTO | null>(null)
 
-  // ¿Es un pedido «mío»? Con varios repartidores por local: la petición
-  // llega a todos los asignados, pero una vez aceptada solo es del que la tomó.
-  const isMine = (d: DeliveryDTO) =>
-    (d.assignedDriverIds || []).includes(user.id) &&
-    (!d.driverId || d.driverId === user.id)
+  // ¿Es un pedido «mío» (sección normal)? Si ya lo acepté (driverId = yo) o
+  // se me ofrece ahora (currentAssigneeId = yo). Para datos viejos sin
+  // currentAssignee, los repartidores normales ven los PENDING de sus
+  // restaurantes; los súper NO (van a la sección de robo para que pueda
+  // tomarlos ahí si quiere).
+  const isMine = (d: DeliveryDTO) => {
+    if (d.driverId === user.id) return true
+    if (d.currentAssigneeId === user.id) return true
+    if (
+      !user.isSuperDriver &&
+      d.currentAssigneeId == null &&
+      (d.assignedDriverIds || []).includes(user.id) &&
+      !d.driverId
+    )
+      return true
+    return false
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['deliveries', 'driver', 'active'],
@@ -162,8 +175,20 @@ export function DriverDashboard({
   }, [subscribe, qc, available, user.id])
 
   const deliveries = data?.deliveries || []
-  const pending = deliveries.filter((d) => d.status === 'PENDING')
-  const inProgress = deliveries.filter((d) => ['ACCEPTED', 'PICKED_UP'].includes(d.status))
+  // Mis pedidos = los de mis restaurantes (isMine). El resto van a la sección
+  // de robo si el repartidor es súper.
+  const myDeliveries = deliveries.filter(isMine)
+  const pending = myDeliveries.filter((d) => d.status === 'PENDING')
+  const inProgress = myDeliveries.filter((d) => ['ACCEPTED', 'PICKED_UP'].includes(d.status))
+  // Súper repartidor: pedidos que puede robar — de otros restaurantes o de
+  // otros repartidores, incluyendo los no aceptados y los sin asignar.
+  const stealable = user.isSuperDriver
+    ? deliveries.filter(
+        (d) =>
+          !isMine(d) &&
+          (d.status === 'PENDING' || d.status === 'ACCEPTED'),
+      )
+    : []
 
   const allDeliveries = recentData?.deliveries || []
   // Activity = most recent finished/in-progress, take 4
@@ -193,6 +218,20 @@ export function DriverDashboard({
       const msg = err instanceof ApiError ? err.message : 'Error'
       qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'active'] })
       toast.error(msg)
+    }
+  }
+
+  /** Súper repartidor: roba un pedido de otro repartidor. */
+  async function handleSteal(d: DeliveryDTO) {
+    try {
+      const res = await api.stealDelivery(d.id)
+      applyDeliveryUpdate(res.delivery)
+      toast.success('Pedido robado', {
+        description: `Ahora llevas tú el pedido de ${d.restaurantName}.`,
+      })
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al robar el pedido')
+      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'active'] })
     }
   }
 
@@ -235,10 +274,13 @@ export function DriverDashboard({
           pending={pending}
           inProgress={inProgress}
           activity={activity}
+          isSuperDriver={!!user.isSuperDriver}
+          stealable={stealable}
           onAccept={(d) => handleAction(d, 'ACCEPTED', 'Solicitud aceptada')}
           onReject={(d) => handleAction(d, 'REJECTED', 'Solicitud rechazada')}
           onPickup={(d) => setPickupTarget(d)}
           onDeliver={(d) => handleAction(d, 'DELIVERED', 'Reparto completado')}
+          onSteal={handleSteal}
           onViewHistory={() => setView('historial')}
         />
       )}
@@ -307,20 +349,26 @@ function PedidosView({
   pending,
   inProgress,
   activity,
+  isSuperDriver,
+  stealable,
   onAccept,
   onReject,
   onPickup,
   onDeliver,
+  onSteal,
   onViewHistory,
 }: {
   isLoading: boolean
   pending: DeliveryDTO[]
   inProgress: DeliveryDTO[]
   activity: DeliveryDTO[]
+  isSuperDriver: boolean
+  stealable: DeliveryDTO[]
   onAccept: (d: DeliveryDTO) => void
   onReject: (d: DeliveryDTO) => void
   onPickup: (d: DeliveryDTO) => void
   onDeliver: (d: DeliveryDTO) => void
+  onSteal: (d: DeliveryDTO) => void
   onViewHistory: () => void
 }) {
   const hasActive = pending.length > 0 || inProgress.length > 0
@@ -468,6 +516,62 @@ function PedidosView({
           </Card>
         </div>
       </div>
+
+      {/* Súper repartidor: sección para robar/tomar pedidos de otros */}
+      {isSuperDriver && stealable.length > 0 && (
+        <Card className="border-primary/30 bg-primary/5 p-0 shadow-sm">
+          <div className="flex items-center gap-2 bg-primary px-5 py-3 text-white">
+            <Shield className="h-4 w-4" />
+            <span className="font-bold">Pedidos de otros repartidores</span>
+            <span className="ml-auto text-sm text-white/80">
+              {stealable.length} disponible{stealable.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs text-muted-foreground">
+              Como súper repartidor puedes hacerte cargo de cualquier pedido: los
+              que llevan otros repartidores (si fallan), los que están esperando
+              repartidor o los que no tienen a nadie asignado.
+            </p>
+            <div className="max-h-80 space-y-2 overflow-y-auto scrollbar-thin">
+              {stealable.map((d) => {
+                const isUnassigned = !d.driverId && !d.currentAssigneeName
+                return (
+                  <div
+                    key={d.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">
+                        {d.restaurantName}
+                        {d.customerName && <span className="font-normal text-muted-foreground"> · {d.customerName}</span>}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {isUnassigned ? (
+                          <span className="font-medium text-amber-600">Sin repartidor asignado</span>
+                        ) : (
+                          <span className="font-medium text-foreground">{d.driverName ?? d.currentAssigneeName ?? '—'}</span>
+                        )}
+                        {' · '}
+                        {d.status === 'PENDING' ? 'Esperando' : 'En camino al local'}
+                        {d.fee != null && ` · ${d.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => onSteal(d)}
+                      className="shrink-0 bg-primary text-white hover:bg-primary/90"
+                    >
+                      <Shield className="mr-1.5 h-3.5 w-3.5" />
+                      {isUnassigned ? 'Tomar' : 'Robar'}
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

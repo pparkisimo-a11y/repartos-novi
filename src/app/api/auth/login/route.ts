@@ -42,7 +42,16 @@ export async function POST(req: Request) {
       await setSession(sessionData)
       const token = createSessionToken(sessionData)
       return NextResponse.json({
-        user: { id: driver.id, name: driver.name, username, role: 'driver' },
+        user: {
+          id: driver.id,
+          name: driver.name,
+          username,
+          role: 'driver',
+          scheduleDays: driver.scheduleDays,
+          scheduleStart: driver.scheduleStart,
+          scheduleEnd: driver.scheduleEnd,
+          isSuperDriver: driver.isSuperDriver,
+        },
         token,
       })
     }

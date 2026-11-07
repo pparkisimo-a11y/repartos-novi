@@ -83,6 +83,10 @@ export interface AdminDriver {
   createdAt: string
   restaurants: number
   services: number
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
+  isSuperDriver: boolean
 }
 
 export type LeadStatus = 'PENDING' | 'CONTACTED' | 'CONVERTED' | 'REJECTED'
@@ -167,6 +171,11 @@ export const api = {
     request<{ delivery: DeliveryDTO }>(`/api/deliveries/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status, ...extra }),
+    }),
+  stealDelivery: (id: string) =>
+    request<{ delivery: DeliveryDTO }>(`/api/deliveries/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'steal' }),
     }),
 
   /** Geocodificación (dirección → coordenadas) para previsualizar tarifa.
@@ -291,6 +300,19 @@ export const api = {
     request<{ ok: boolean }>(`/api/admin/drivers/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ action: 'reset-password', password }),
+    }),
+  adminUpdateDriverSchedule: (
+    id: string,
+    schedule: { scheduleDays: string; scheduleStart: string; scheduleEnd: string },
+  ) =>
+    request<{ driver: AdminDriver }>(`/api/admin/drivers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'update-schedule', ...schedule }),
+    }),
+  adminToggleSuperDriver: (id: string, value: boolean) =>
+    request<{ driver: AdminDriver }>(`/api/admin/drivers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'toggle-super', value }),
     }),
   adminDeleteDriver: (id: string) =>
     request<{ ok: boolean }>(`/api/admin/drivers/${id}`, {
