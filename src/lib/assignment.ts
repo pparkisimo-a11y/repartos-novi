@@ -10,9 +10,9 @@
  *   2. Los que tienen MENOS repartos activos (para repartir por igual)
  *   3. Orden alfabético (desempate estable)
  *
- * Los súper repartidores no entran en la rotación normal: ellos ven todo y
- * pueden "robar" pedidos a otros desde su panel, pero no reciben ofertas
- * automáticas (su rol es cubrir fallos, no repartir lo rutinario).
+ * Los súper repartidores SÍ entran en la rotación normal (son repartidores que
+ * además tienen la capacidad extra de robar pedidos). Así el reparto es
+ * equitativo entre todos los asignados al local.
  */
 import { db } from '@/lib/db'
 import { parseSchedule, isRestaurantOpen } from '@/lib/schedule'
@@ -23,9 +23,9 @@ export async function buildAssigneeOrder(
 ): Promise<string[]> {
   if (restaurantDriverIds.length === 0) return []
 
-  // Carga los repartidores asignados (no súper) con su carga actual
+  // Carga TODOS los repartidores asignados (incluidos los súper) con su carga
   const drivers = await db.driver.findMany({
-    where: { id: { in: restaurantDriverIds }, isSuperDriver: false },
+    where: { id: { in: restaurantDriverIds } },
     select: {
       id: true,
       name: true,
