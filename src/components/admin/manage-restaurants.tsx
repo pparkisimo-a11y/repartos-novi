@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Store,
@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Bike,
   Check,
+  Euro,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,12 +41,14 @@ import {
 import { toast } from 'sonner'
 import { api, ApiError, type AdminRestaurant, type AdminDriver } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
+import { feeExplanation, type FeeConfig } from '@/lib/fees'
 
 export function ManageRestaurants() {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AdminRestaurant | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRestaurant | null>(null)
+  const [feeTarget, setFeeTarget] = useState<AdminRestaurant | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'restaurants'],
@@ -236,6 +239,31 @@ export function ManageRestaurants() {
                   </p>
                 </div>
 
+                {/* Tarifa del local — configurable por restaurante */}
+                <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <Euro className="h-3.5 w-3.5" />
+                      Tarifa
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setFeeTarget(r)}
+                    >
+                      Editar tarifa
+                    </Button>
+                  </div>
+                  <p className="mt-1.5 text-sm text-foreground">
+                    {feeExplanation({
+                      baseEur: r.feeBaseEur,
+                      thresholdKm: r.feeThresholdKm,
+                      perExtraKmEur: r.feePerExtraKmEur,
+                    } as FeeConfig)}
+                  </p>
+                </div>
+
                 <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                   <span>Dado de alta {formatDateTime(r.createdAt)}</span>
                 </div>
@@ -287,6 +315,14 @@ export function ManageRestaurants() {
         onDone={() => {
           invalidate()
           setDeleteTarget(null)
+        }}
+      />
+      <EditFeeDialog
+        target={feeTarget}
+        onOpenChange={(o) => !o && setFeeTarget(null)}
+        onDone={() => {
+          invalidate()
+          setFeeTarget(null)
         }}
       />
     </div>
@@ -676,4 +712,146 @@ function DeleteRestaurantDialog({
       </AlertDialogContent>
     </AlertDialog>
   )
+}
+
+function EditFeeDialog({
+  target,
+  onOpenChange,
+  onDone,
+}: {
+  target: AdminRestaurant | null
+  onOpenChange: (o: boolean) => void
+  onDone: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [baseEur, setBaseEur] = useState('')
+  const [thresholdKm, setThresholdKm] = useState('')
+  const [perExtraKmEur, setPerExtraKmEur] = useState('')
+
+  // Prefill al abrir con los valores actuales del local
+  useEffect(() => {
+    if (target) {
+      setBaseEur(String(target.feeBaseEur))
+      setThresholdKm(String(target.feeThresholdKm))
+      setPerExtraKmEur(String(target.feePerExtraKmEur))
+    }
+  }, [target])
+
+  const config: FeeConfig | null = parseFee(baseEur, thresholdKm, perExtraKmEur)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!target || !config) return
+    setLoading(true)
+    try {
+      await api.adminUpdateRestaurantFees(target.id, {
+        feeBaseEur: config.baseEur,
+        feeThresholdKm: config.thresholdKm,
+        feePerExtraKmEur: config.perExtraKmEur,
+      })
+      toast.success('Tarifa actualizada', {
+        description: `${target.name}: ${feeExplanation(config)}`,
+      })
+      onDone()
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Error'
+      toast.error(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Euro className="h-5 w-5 text-primary" />
+            Tarifa de {target?.name ?? ''}
+          </DialogTitle>
+          <DialogDescription>
+            Define la tarifa de reparto de este local. Se aplica al recoger cada
+            pedido según la distancia hasta la dirección de entrega.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label htmlFor="fee-base">Tarifa base (€)</Label>
+            <Input
+              id="fee-base"
+              value={baseEur}
+              onChange={(e) => setBaseEur(e.target.value)}
+              placeholder="3"
+              inputMode="decimal"
+              autoFocus
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              Importe fijo que se cobra hasta el umbral de km.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="fee-threshold">Umbral de km incluidos</Label>
+            <Input
+              id="fee-threshold"
+              value={thresholdKm}
+              onChange={(e) => setThresholdKm(e.target.value)}
+              placeholder="2"
+              inputMode="decimal"
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              Hasta esta distancia se cobra solo la tarifa base.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="fee-extra">Suplemento por km adicional (€)</Label>
+            <Input
+              id="fee-extra"
+              value={perExtraKmEur}
+              onChange={(e) => setPerExtraKmEur(e.target.value)}
+              placeholder="0.35"
+              inputMode="decimal"
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              Se suma por cada kilómetro empezado por encima del umbral.
+            </p>
+          </div>
+
+          {/* Previsualización de la tarifa resultante */}
+          {config && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              <p className="font-semibold">Así quedará:</p>
+              <p className="mt-0.5">{feeExplanation(config)}</p>
+            </div>
+          )}
+        </form>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={loading || !target || !config}
+            className="bg-primary text-white hover:bg-primary/90"
+          >
+            {loading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Guardar tarifa
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+
+function parseFee(base: string, threshold: string, extra: string): FeeConfig | null {
+  const b = Number(base.replace(',', '.'))
+  const t = Number(threshold.replace(',', '.'))
+  const e = Number(extra.replace(',', '.'))
+  if (![b, t, e].every((n) => Number.isFinite(n) && n >= 0)) return null
+  if (b > 100 || e > 50 || t > 100) return null
+  return { baseEur: b, thresholdKm: t, perExtraKmEur: e }
 }

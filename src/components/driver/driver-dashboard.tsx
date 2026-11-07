@@ -809,7 +809,11 @@ function PickupDialog({
   const manualKmNum = Number(manualKm.replace(',', '.'))
   const manualValid = manualKm.trim() !== '' && Number.isFinite(manualKmNum) && manualKmNum > 0
   const distanceKm = manualValid ? manualKmNum : route?.km ?? null
-  const fee = distanceKm != null ? feeForDistanceKm(distanceKm) : null
+  // Tarifa del restaurante de este reparto (cada local puede tener la suya)
+  const feeConfig = delivery
+    ? { baseEur: delivery.feeBaseEur, thresholdKm: delivery.feeThresholdKm, perExtraKmEur: delivery.feePerExtraKmEur }
+    : undefined
+  const fee = distanceKm != null ? feeForDistanceKm(distanceKm, feeConfig) : null
 
   const canSubmit = address.trim().length >= 4 && distanceKm != null && !submitting
 
@@ -955,7 +959,7 @@ function PickupDialog({
             <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
               <strong className="text-foreground">Cómo se calcula la tarifa:</strong>{' '}
-              {feeExplanation()}. La distancia se mide por carretera desde el
+              {feeExplanation(feeConfig)}. La distancia se mide por carretera desde el
               local hasta la dirección elegida.
             </p>
           </div>

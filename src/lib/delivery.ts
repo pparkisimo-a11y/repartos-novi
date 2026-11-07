@@ -54,6 +54,10 @@ export interface DeliveryDTO {
   dropoffAddress: string | null
   distanceKm: number | null
   fee: number | null
+  /** Tarifa del restaurante que aplica a este reparto (para previsualizar). */
+  feeBaseEur: number
+  feeThresholdKm: number
+  feePerExtraKmEur: number
 }
 
 /** Shape devuelto por Prisma al incluir restaurante (+repartores) y repartidor. */
@@ -76,6 +80,9 @@ interface DeliveryWithRestaurant {
     address: string
     lat: number
     lng: number
+    feeBaseEur: number
+    feeThresholdKm: number
+    feePerExtraKmEur: number
     drivers?: Array<{ driverId: string; driver?: { name: string } | null }>
   }
   driver?: { id: string; name: string } | null
@@ -114,6 +121,9 @@ export function serializeDelivery(d: DeliveryWithRestaurant, includeLocation = t
     dropoffAddress: d.dropoffAddress ?? null,
     distanceKm: d.distanceKm ?? null,
     fee: d.fee ?? null,
+    feeBaseEur: d.restaurant.feeBaseEur,
+    feeThresholdKm: d.restaurant.feeThresholdKm,
+    feePerExtraKmEur: d.restaurant.feePerExtraKmEur,
   }
 }
 
@@ -125,6 +135,9 @@ export const DELIVERY_RESTAURANT_INCLUDE = {
       address: true,
       lat: true,
       lng: true,
+      feeBaseEur: true,
+      feeThresholdKm: true,
+      feePerExtraKmEur: true,
       drivers: { select: { driverId: true, driver: { select: { name: true } } } },
     },
   },

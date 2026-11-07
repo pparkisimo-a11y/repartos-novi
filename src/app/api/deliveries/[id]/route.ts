@@ -157,7 +157,12 @@ export async function PATCH(
 
     if (distanceKm != null) {
       data.distanceKm = distanceKm
-      data.fee = feeForDistanceKm(distanceKm) // tarifa definitiva, calculada aquí
+      // Tarifa definitiva según la configuración del restaurante del reparto
+      data.fee = feeForDistanceKm(distanceKm, {
+        baseEur: delivery.restaurant.feeBaseEur,
+        thresholdKm: delivery.restaurant.feeThresholdKm,
+        perExtraKmEur: delivery.restaurant.feePerExtraKmEur,
+      })
     }
     if (dropoffLat != null && dropoffLng != null) {
       data.dropoffLat = dropoffLat

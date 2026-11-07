@@ -37,6 +37,13 @@ model Restaurant {
   lat            Float
   lng            Float
   createdAt      DateTime           @default(now())
+
+  // Tarifa de reparto configurable por local. Si el admin no la toca, cada
+  // restaurante usa los valores por defecto (definidos también en fees.ts).
+  feeBaseEur       Float             @default(3)
+  feeThresholdKm   Float             @default(2)
+  feePerExtraKmEur Float             @default(0.35)
+
   deliveries     Delivery[]
   convertedLeads Lead[]             @relation("ConvertedLeads")
   drivers        RestaurantDriver[]

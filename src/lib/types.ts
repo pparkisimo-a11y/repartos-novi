@@ -59,6 +59,10 @@ export interface DeliveryDTO {
   dropoffAddress: string | null
   distanceKm: number | null
   fee: number | null
+  /** Tarifa del restaurante que aplica a este reparto (para previsualizar). */
+  feeBaseEur: number
+  feeThresholdKm: number
+  feePerExtraKmEur: number
 }
 
 /** Sugerencia de dirección del autocomplete (estilo Google Maps) que usa el

@@ -68,6 +68,9 @@ export interface AdminRestaurant {
   services: number
   assignedDriverIds: string[]
   assignedDriverNames: string[]
+  feeBaseEur: number
+  feeThresholdKm: number
+  feePerExtraKmEur: number
 }
 
 export interface AdminDriver {
@@ -251,6 +254,14 @@ export const api = {
     request<{ restaurant: AdminRestaurant }>(`/api/admin/restaurants/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ action: 'assign', assignedDriverIds }),
+    }),
+  adminUpdateRestaurantFees: (
+    id: string,
+    fees: { feeBaseEur: number; feeThresholdKm: number; feePerExtraKmEur: number },
+  ) =>
+    request<{ restaurant: AdminRestaurant }>(`/api/admin/restaurants/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'update-fees', ...fees }),
     }),
   adminDeleteRestaurant: (id: string) =>
     request<{ ok: boolean }>(`/api/admin/restaurants/${id}`, {

@@ -22,6 +22,9 @@ export interface AdminRestaurantOut {
   services: number
   assignedDriverIds: string[]
   assignedDriverNames: string[]
+  feeBaseEur: number
+  feeThresholdKm: number
+  feePerExtraKmEur: number
 }
 
 function normalize(input: Partial<AdminRestaurantInput>): {
@@ -88,6 +91,9 @@ export async function listRestaurants(): Promise<AdminRestaurantOut[]> {
     services: r._count.deliveries,
     assignedDriverIds: r.drivers.map((a) => a.driverId),
     assignedDriverNames: r.drivers.map((a) => a.driver.name),
+    feeBaseEur: r.feeBaseEur,
+    feeThresholdKm: r.feeThresholdKm,
+    feePerExtraKmEur: r.feePerExtraKmEur,
   }))
 }
 
@@ -135,6 +141,9 @@ export async function createRestaurant(
       services: 0,
       assignedDriverIds: drivers.drivers.map((d) => d.id),
       assignedDriverNames: drivers.drivers.map((d) => d.name),
+      feeBaseEur: r.feeBaseEur,
+      feeThresholdKm: r.feeThresholdKm,
+      feePerExtraKmEur: r.feePerExtraKmEur,
     },
   }
 }
@@ -180,6 +189,9 @@ export async function updateRestaurantAssignment(
       services: r._count.deliveries,
       assignedDriverIds: r.drivers.map((a) => a.driverId),
       assignedDriverNames: r.drivers.map((a) => a.driver.name),
+      feeBaseEur: r.feeBaseEur,
+      feeThresholdKm: r.feeThresholdKm,
+      feePerExtraKmEur: r.feePerExtraKmEur,
     },
   }
 }
@@ -195,6 +207,59 @@ export async function updateRestaurantPassword(
   if (!existing) return { ok: false, error: 'Restaurante no encontrado', status: 404 }
   await db.restaurant.update({ where: { id }, data: { password: hashPassword(password) } })
   return { ok: true }
+}
+
+export interface RestaurantFeeInput {
+  feeBaseEur: number
+  feeThresholdKm: number
+  feePerExtraKmEur: number
+}
+
+/** Valida y guarda la tarifa personalizada de un local. */
+export async function updateRestaurantFees(
+  id: string,
+  input: Partial<RestaurantFeeInput>,
+): Promise<{ ok: true; restaurant: AdminRestaurantOut } | { ok: false; error: string; status: number }> {
+  const existing = await db.restaurant.findUnique({ where: { id } })
+  if (!existing) return { ok: false, error: 'Restaurante no encontrado', status: 404 }
+
+  const feeBaseEur = Number(input.feeBaseEur)
+  const feeThresholdKm = Number(input.feeThresholdKm)
+  const feePerExtraKmEur = Number(input.feePerExtraKmEur)
+
+  if (![feeBaseEur, feeThresholdKm, feePerExtraKmEur].every((n) => Number.isFinite(n) && n >= 0)) {
+    return { ok: false, error: 'Los valores de la tarifa deben ser numéricos y positivos', status: 400 }
+  }
+  if (feeBaseEur > 100 || feePerExtraKmEur > 50 || feeThresholdKm > 100) {
+    return { ok: false, error: 'Algún valor de la tarifa es demasiado alto', status: 400 }
+  }
+
+  const r = await db.restaurant.update({
+    where: { id },
+    data: { feeBaseEur, feeThresholdKm, feePerExtraKmEur },
+    include: {
+      _count: { select: { deliveries: true } },
+      drivers: { select: { driverId: true, driver: { select: { id: true, name: true } } } },
+    },
+  })
+  return {
+    ok: true,
+    restaurant: {
+      id: r.id,
+      name: r.name,
+      username: r.username,
+      address: r.address,
+      lat: r.lat,
+      lng: r.lng,
+      createdAt: r.createdAt.toISOString(),
+      services: r._count.deliveries,
+      assignedDriverIds: r.drivers.map((a) => a.driverId),
+      assignedDriverNames: r.drivers.map((a) => a.driver.name),
+      feeBaseEur: r.feeBaseEur,
+      feeThresholdKm: r.feeThresholdKm,
+      feePerExtraKmEur: r.feePerExtraKmEur,
+    },
+  }
 }
 
 export async function deleteRestaurant(

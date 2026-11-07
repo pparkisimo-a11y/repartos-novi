@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdminFromRequest } from '@/lib/session'
-import { updateRestaurantPassword, deleteRestaurant, updateRestaurantAssignment } from '@/lib/admin-restaurants'
+import { updateRestaurantPassword, deleteRestaurant, updateRestaurantAssignment, updateRestaurantFees } from '@/lib/admin-restaurants'
 
 export async function PATCH(
   req: Request,
@@ -27,6 +27,16 @@ export async function PATCH(
           ? [String(body.assignedDriverId)]
           : []
       const res = await updateRestaurantAssignment(id, driverIds)
+      if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
+      return NextResponse.json({ restaurant: res.restaurant })
+    }
+
+    if (action === 'update-fees') {
+      const res = await updateRestaurantFees(id, {
+        feeBaseEur: body.feeBaseEur,
+        feeThresholdKm: body.feeThresholdKm,
+        feePerExtraKmEur: body.feePerExtraKmEur,
+      })
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
       return NextResponse.json({ restaurant: res.restaurant })
     }
