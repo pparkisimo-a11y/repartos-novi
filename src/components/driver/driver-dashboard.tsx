@@ -1072,20 +1072,21 @@ function PickupDialog({
   }, [delivery])
 
   /** El repartidor eligió una dirección del desplegable: coordenadas exactas
-   *  → tarifa en vivo. Primero línea recta (instantáneo) y luego la distancia
-   *  real por carretera, que es la que se guarda. */
+   *  → tarifa en vivo con la distancia real por carretera (la que se guarda). */
   function handleSelect(s: AddressSuggestion) {
     setSelected(s)
     if (!delivery) return
     const from = { lat: delivery.lat, lng: delivery.lng }
-    // Feedback inmediato con línea recta mientras llega la ruta real
-    setRoute({ km: haversineKm(from, s), method: 'straight' })
+    // No mostramos la línea recta ni siquiera temporalmente: el repartidor
+    // solo verá la distancia por carretera (la real). Mientras llega, el
+    // estado "calculando" lo gestiona routeLoading.
+    setRoute(null)
     setRouteLoading(true)
     api
       .routeDistance(from, s)
       .then((r) => setRoute({ km: r.km, method: r.method }))
       .catch(() => {
-        /* se queda la línea recta: el servidor la recalcula al guardar */
+        /* el servidor recalculará al guardar; dejamos route=null */
       })
       .finally(() => setRouteLoading(false))
   }
@@ -1189,9 +1190,7 @@ function PickupDialog({
                   {formatKm(route.km)}{' '}
                   {routeLoading
                     ? '(calculando ruta…)'
-                    : route.method === 'road'
-                      ? 'por carretera'
-                      : 'en línea recta'}{' '}
+                    : 'por carretera'}{' '}
                   desde {delivery?.restaurantName}
                 </span>
                 <span className="inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white">
