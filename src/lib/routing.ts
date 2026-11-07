@@ -22,7 +22,9 @@ import { haversineKm } from './fees'
 import { fetchWithRetry } from './http'
 
 // Mapbox Directions API (requiere token en .env)
-const MAPBOX_DIRECTIONS = 'https://api.mapbox.com/directions/v5/mapbox/driving'
+// Perfil driving-traffic: usa tráfico en tiempo real (igual que Google Maps),
+// lo que da distancias más precisas que el perfil driving normal.
+const MAPBOX_DIRECTIONS = 'https://api.mapbox.com/directions/v5/mapbox/driving-traffic'
 const MAPBOX_TOKEN = process.env.MAPBOX_ACCESS_TOKEN || ''
 
 // Múltiples servidores OSRM públicos como respaldo.
