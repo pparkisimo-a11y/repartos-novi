@@ -256,7 +256,7 @@ export function AddressAutocomplete({
             </button>
           ))}
           <div className="border-t border-border/60 bg-muted/40 px-3 py-1.5 text-[10px] text-muted-foreground">
-            Datos de mapas © OpenStreetMap
+            Direcciones: Esri · OpenStreetMap
           </div>
         </div>
       )}

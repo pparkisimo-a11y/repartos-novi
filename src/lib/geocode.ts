@@ -1,18 +1,30 @@
 /**
- * Geocodificación de direcciones (dirección → coordenadas).
+ * Geocodificación y autocompletado de direcciones (dirección → coordenadas).
  *
- * Usa el servicio público Nominatim de OpenStreetMap. Solo se llama desde el
- * servidor (API routes) con un User-Agent identificado, como exige su política
- * de uso, y con caché en memoria para no repetir consultas (y respetar su
- * límite de ~1 petición/segundo). Volumen esperado: decenas de repartos por
- * noche — de sobra dentro del uso justo.
+ * MOTOR PRINCIPAL: ArcGIS World Geocoder de Esri — servicio público sin API
+ * key dentro de un uso justo. Es un geocoder comercial (el mismo tipo de
+ * datos que usa Google Maps) y, a diferencia de OpenStreetMap, resuelve el
+ * PORTAL exacto: "Calle Trevenque 17, 18320 Santa Fe, Granada" devuelve las
+ * coordenadas del edificio, no el centroide de una calle de 1 km. Cubre
+ * toda España y entiende la localidad escrita en la propia consulta
+ * ("calle trevenque 17 santa fe" → Santa Fe, aunque el restaurante esté en
+ * Madrid).
  *
- * Sesgo geográfico: al geocodificar la dirección de entrega de un reparto se
- * pasa la posición del RESTAURANTE como referencia. La búsqueda se acota a un
- * cuadro de ~±17 km a su alrededor (viewbox + bounded de Nominatim) y de los
- * resultados se elige el MÁS CERCANO al restaurante. Esto evita matches
- * absurdos como una "Calle Mayor" de otra localidad cuando el reparto es
- * urbano. Si no hay resultado en el cuadro, se abre la búsqueda.
+ * COMPLEMENTO Y RESPALDO (OpenStreetMap, gratis y sin key):
+ *  - Photon (komoot.io): consultas parciales mientras se teclea ("calle
+ *    trev" — ArcGIS no sugiere con prefijos incompletos), POIs con nombre
+ *    propio y respaldo inmediato si ArcGIS no responde.
+ *  - Nominatim + interpolación de portales: segunda línea de respaldo si
+ *    ArcGIS está caído (con caja de búsqueda cerrada a la zona de reparto).
+ *
+ * Sesgo geográfico: al buscar se pasa la posición del RESTAURANTE como
+ * referencia. ArcGIS la recibe como `location` + `distance` (prioriza la
+ * zona SIN excluir el resto de España); Photon/Nominatim usan bbox/viewbox
+ * duros porque su ranking a pelo devuelve homónimos de otras provincias.
+ *
+ * Volumen esperado: decenas de repartos por noche más el tecleo del
+ * autocomplete (con debounce en el cliente y caché aquí) — de sobra dentro
+ * del uso justo de estos servicios.
  */
 
 import type { AddressSuggestion } from './types'
@@ -21,12 +33,16 @@ import { fetchWithRetry } from './http'
 export interface GeoPoint {
   lat: number
   lng: number
-  /** Dirección normalizada que devuelve Nominatim (display_name). */
+  /** Dirección normalizada que devuelve el geocoder. */
   label?: string
 }
 
 const NOMINATIM_SEARCH = 'https://nominatim.openstreetmap.org/search'
 const PHOTON_API = 'https://photon.komoot.io/api/'
+const ARCGIS_FIND =
+  'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates'
+const ARCGIS_SUGGEST =
+  'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest'
 const USER_AGENT = 'RepartosNOVI/1.0 (repartos.novi@gmail.com)'
 const CACHE_LIMIT = 500
 const MIN_QUERY_LEN = 4
@@ -91,12 +107,204 @@ async function searchNominatim(
     .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
 }
 
+/* ------------------------------------------------------------------ *
+ * ARCGIS WORLD GEOCODER (Esri) — motor principal.
+ *
+ * `findAddressCandidates` con `singleLine` acepta la dirección tal cual la
+ * escribe la gente ("calle trevenque 17 santa fe") y devuelve candidatos
+ * con coordenadas de PORTAL (Addr_type PointAddress/StreetAddress), calle
+ * (StreetName), POI o localidad (Locality). El ranking interno ya prioriza
+ * la zona del `location` y respeta localidades explícitas de la consulta.
+ * ------------------------------------------------------------------ */
+
+// Radio de priorización alrededor del restaurante (metros). NO es un filtro
+// duro: si lo tecleado solo existe lejos, ArcGIS lo devuelve igual.
+const ARCGIS_BIAS_RADIUS_M = 80000
+const ARCGIS_TIMEOUT_MS = 3500
+
+interface ArcCandidate {
+  address?: string
+  location?: { x?: number; y?: number }
+  score?: number
+  attributes?: {
+    Addr_type?: string
+    City?: string
+    Postal?: string
+    Subregion?: string
+    Region?: string
+  }
+}
+
+// Tipos de resultado útiles para un reparto: portal (PointAddress /
+// StreetAddress), calle (StreetName), POI y localidad. Se descarta el ruido
+// administrativo puro (Comunidad autónoma, provincia, país, CP suelto…).
+const ARCGIS_KEEP_TYPES = new Set([
+  'PointAddress',
+  'StreetAddress',
+  'StreetAddressExt',
+  'StreetName',
+  'POI',
+  'Locality',
+])
+
+/** Candidato de ArcGIS → sugerencia de 2 líneas estilo Google Maps:
+ *  main "Calle Trevenque 17" · secondary "18320 Santa Fe, Granada". */
+function arcgisToSuggestion(c: ArcCandidate): RichSuggestion | null {
+  const { x, y } = c.location ?? {}
+  if (typeof x !== 'number' || typeof y !== 'number') return null
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  const a = c.attributes ?? {}
+  const parts = (c.address || '').split(',').map((s) => s.trim()).filter(Boolean)
+  const main = parts[0] || 'Dirección'
+  const city = a.City || ''
+  const postal = /^\d{5}$/.test(a.Postal || '') ? a.Postal! : ''
+  const cityLine = [postal, city].filter(Boolean).join(' ')
+  const sub = a.Subregion || ''
+  const region = a.Region || ''
+  const type = a.Addr_type || ''
+  const kind: RichSuggestion['kind'] =
+    type === 'POI' ? 'poi' : type === 'Locality' ? 'place' : 'street'
+
+  let secondary: string
+  if (city && deaccent(main) === deaccent(city)) {
+    // Localidad: main ES la ciudad → "Santa Fe | Granada"
+    secondary = sub && deaccent(sub) !== deaccent(city) ? sub : region
+  } else {
+    const prov = sub && deaccent(sub) !== deaccent(city) ? sub : ''
+    secondary = [cityLine, prov].filter(Boolean).join(', ')
+  }
+  if (!secondary && parts.length > 1) secondary = parts.slice(1).join(', ')
+
+  // "Calle Trevenque 17" → streetText "Calle Trevenque" + portal 17
+  const pm = main.match(/^(.+?)\s+(\d{1,4}\s?[a-z]?)$/i)
+  const streetText = kind === 'street' ? (pm ? pm[1] : main) : undefined
+  const portalNum = pm ? Number.parseInt(pm[2].replace(/\s+/g, ''), 10) : NaN
+
+  return {
+    lat: y,
+    lng: x,
+    main,
+    secondary: secondary.replace(/^,\s*/, ''),
+    label: [main, secondary].filter(Boolean).join(', '),
+    portal: Number.isFinite(portalNum) ? portalNum : undefined,
+    streetText,
+    cityLine: cityLine || undefined,
+    kind,
+  }
+}
+
+/** Sugerencia del endpoint `suggest` de ArcGIS (solo texto + magicKey:
+ *  las coordenadas se resuelven aparte con `resolveArcGISMagic`). */
+interface ArcSuggestItem {
+  text: string
+  magicKey: string
+}
+
+/** `suggest` está diseñado para AUTOCOMPLETAR con prefijos incompletos
+ *  ("calle trev" → Treviso, Trevenque, Trevélez…), justo lo que
+ *  `findAddressCandidates` no cubre. Devuelve etiquetas con magicKey. */
+async function searchArcGISSuggest(
+  q: string,
+  bias?: { lat: number; lng: number },
+): Promise<ArcSuggestItem[]> {
+  const url = new URL(ARCGIS_SUGGEST)
+  url.searchParams.set('text', q)
+  url.searchParams.set('f', 'json')
+  url.searchParams.set('maxSuggestions', '6')
+  url.searchParams.set('sourceCountry', 'ESP')
+  if (bias) {
+    url.searchParams.set('location', `${bias.lng},${bias.lat}`)
+    url.searchParams.set('distance', String(ARCGIS_BIAS_RADIUS_M))
+  }
+  const res = await fetchWithRetry(
+    url,
+    {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(ARCGIS_TIMEOUT_MS),
+    },
+    { attempts: 1 },
+  )
+  if (!res.ok) return []
+  const data = (await res.json()) as {
+    suggestions?: Array<{ text?: string; magicKey?: string; isCollection?: boolean }>
+  }
+  return (data.suggestions ?? [])
+    .filter((s) => s.text && s.magicKey && !s.isCollection)
+    .map((s) => ({ text: s.text!, magicKey: s.magicKey! }))
+}
+
+/** Resuelve el magicKey de una sugerencia a un candidato con coordenadas
+ *  exactas (1 petición por sugerencia, se hacen en paralelo). */
+async function resolveArcGISMagic(
+  text: string,
+  magicKey: string,
+): Promise<RichSuggestion | null> {
+  const url = new URL(ARCGIS_FIND)
+  url.searchParams.set('singleLine', text)
+  url.searchParams.set('magicKey', magicKey)
+  url.searchParams.set('f', 'json')
+  url.searchParams.set('maxLocations', '1')
+  url.searchParams.set('sourceCountry', 'ESP')
+  url.searchParams.set('outFields', 'Addr_type,City,Postal,Subregion,Region')
+  const res = await fetchWithRetry(
+    url,
+    {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(3000),
+    },
+    { attempts: 1 },
+  )
+  if (!res.ok) return null
+  const data = (await res.json()) as { candidates?: ArcCandidate[] }
+  const c = data.candidates?.[0]
+  return c ? arcgisToSuggestion(c) : null
+}
+
+/** Búsqueda en ArcGIS (solo España) con sesgo hacia la zona del reparto.
+ *  Devuelve sugerencias ricas en el orden de relevancia del motor. */
+async function searchArcGIS(
+  q: string,
+  bias?: { lat: number; lng: number },
+): Promise<RichSuggestion[]> {
+  const url = new URL(ARCGIS_FIND)
+  url.searchParams.set('singleLine', q)
+  url.searchParams.set('f', 'json')
+  url.searchParams.set('maxLocations', '8')
+  url.searchParams.set('sourceCountry', 'ESP')
+  url.searchParams.set('outFields', 'Addr_type,City,Postal,Subregion,Region')
+  if (bias) {
+    // location=lng,lat · distance en metros (prioriza la zona, no filtra)
+    url.searchParams.set('location', `${bias.lng},${bias.lat}`)
+    url.searchParams.set('distance', String(ARCGIS_BIAS_RADIUS_M))
+  }
+  const res = await fetchWithRetry(
+    url,
+    {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(ARCGIS_TIMEOUT_MS),
+    },
+    { attempts: 1 },
+  )
+  if (!res.ok) return []
+  const data = (await res.json()) as { candidates?: ArcCandidate[] }
+  return (data.candidates ?? [])
+    .filter(
+      (c) => !c.attributes?.Addr_type || ARCGIS_KEEP_TYPES.has(c.attributes.Addr_type),
+    )
+    .map(arcgisToSuggestion)
+    .filter((s): s is RichSuggestion => s !== null)
+}
+
 /**
- * Convierte una dirección en coordenadas. Si se pasa `bias` (la posición del
- * restaurante), primero busca SOLO en un cuadro de ~17 km a su alrededor y
- * elige el candidato más cercano — los repartos son cortos y esto evita
- * matches de otras localidades. Si no hay resultado, abre la búsqueda a
- * España y luego a todo el mundo.
+ * Convierte una dirección en coordenadas.
+ *
+ * 1. ArcGIS: si la dirección trae número, resuelve el EDIFICIO concreto
+ *    (mismo motor que el autocomplete, así el km/tarifa no baila entre la
+ *    sugerencia seleccionada y la confirmación del reparto).
+ * 2. Respaldo Nominatim: primero acotado a la zona del restaurante (elige
+ *    el candidato más cercano), luego España, luego todo el mundo.
+ *
  * Devuelve null si no se encuentra o si falla la red.
  */
 export async function geocodeAddress(
@@ -111,28 +319,42 @@ export async function geocodeAddress(
   if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null
 
   let result: GeoPoint | null = null
+
+  // 1. ArcGIS (portal a nivel de edificio)
   try {
-    if (bias) {
-      // 1. Acotado al entorno del restaurante: el más cercano de los candidatos
-      const candidates = await searchNominatim(q, { countrycodes: 'es', bias, limit: 5 })
-      if (candidates.length > 0) {
-        result = candidates.reduce((best, c) =>
-          distanceKm(bias, c) < distanceKm(bias, best) ? c : best,
-        )
-      }
-    }
-    // 2. Abierta a España
-    if (!result) {
-      const es = await searchNominatim(q, { countrycodes: 'es' })
-      result = es[0] ?? null
-    }
-    // 3. Abierta a todo el mundo
-    if (!result) {
-      const global = await searchNominatim(q)
-      result = global[0] ?? null
-    }
+    const arc = await searchArcGIS(q, bias)
+    const hit =
+      arc.find((s) => s.kind === 'street' && s.portal !== undefined) ??
+      arc.find((s) => s.kind === 'street') ??
+      arc[0]
+    if (hit) result = { lat: hit.lat, lng: hit.lng, label: hit.label }
   } catch {
-    result = null // red caída / timeout → el repartidor puede meter los km a mano
+    /* a la cadena Nominatim */
+  }
+
+  // 2. Respaldo Nominatim
+  if (!result) {
+    try {
+      if (bias) {
+        // Acotado al entorno del restaurante: el más cercano de los candidatos
+        const candidates = await searchNominatim(q, { countrycodes: 'es', bias, limit: 5 })
+        if (candidates.length > 0) {
+          result = candidates.reduce((best, c) =>
+            distanceKm(bias, c) < distanceKm(bias, best) ? c : best,
+          )
+        }
+      }
+      if (!result) {
+        const es = await searchNominatim(q, { countrycodes: 'es' })
+        result = es[0] ?? null
+      }
+      if (!result) {
+        const global = await searchNominatim(q)
+        result = global[0] ?? null
+      }
+    } catch {
+      result = null // red caída / timeout → el repartidor puede meter los km a mano
+    }
   }
 
   // Cachear (con límite de tamaño, FIFO)
@@ -148,25 +370,20 @@ export async function geocodeAddress(
 /* ------------------------------------------------------------------ *
  * AUTOCOMPLETE (estilo Google Maps): sugerencias mientras se escribe.
  *
- * Fuentes (ambas de OpenStreetMap, gratis y sin API key):
- *  - Photon (komoot.io): typeahead rápido para consultas parciales.
- *  - Nominatim: respaldo con caja de búsqueda cerrada (viewbox+bounded),
- *    imprescindible para "calle + número" cuando el portal no está
- *    indexado: devuelve la propia CALLE de la zona en vez de portales
- *    homónimos de otras localidades.
+ * Flujo por cada tanda de tecleo (con debounce en el cliente):
  *
- * Con `bias` (posición del restaurante) la búsqueda se cierra a la zona de
- * reparto (bbox/viewbox duros); solo se abre si dentro no hay nada que
- * encaje con lo tecleado. Los resultados se puntúan contra la consulta
- * (tokens de calle + número de portal) y se ordenan por relevancia y
- * cercanía. Véase «Relevancia de las sugerencias» más abajo.
- *
- * PORTAL A NIVEL DE EDIFICIO: si el número exacto no está indexado en OSM
- * (p. ej. un 25 suelto de una calle larga), se SONDEA Photon con los
- * números vecinos de la misma calle y se INTERPOLA la posición del portal
- * entre los que sí existen («Calle Elvira 15 · portal estimado»). Así el
- * repartidor selecciona el bloque concreto y la tarifa se calcula al punto
- * real de la calle, no al centroide de una calle de 1 km.
+ *  1. EN PARALELO:
+ *     - ArcGIS (España, sesgo del restaurante): portales exactos, calles,
+ *       POIs y localidades. Es la fuente que manda cuando devuelve algo.
+ *     - Photon acotado a la zona (bbox duro): cubre prefijos parciales
+ *       ("calle trev", que ArcGIS no sugiere) y POIs locales.
+ *  2. Si ArcGIS devuelve resultados: se colapsan sus duplicados (el mismo
+ *     portal suele venir como PointAddress y StreetAddress), se quita el
+ *     ruido que no encaja con lo tecleado y se completan con POIs/lugares
+ *     de Photon que ArcGIS no listara.
+ *  3. Si ArcGIS no responde (parcial / caído): cadena OpenStreetMap —
+ *     Photon de zona → Nominatim acotado → Photon abierto → interpolación
+ *     de portales entre vecinos indexados (véase «Relevancia» abajo).
  * ------------------------------------------------------------------ */
 
 // Caché propia del autocomplete (las consultas parciales cambian rápido,
@@ -176,10 +393,9 @@ const AC_CACHE_LIMIT = 200
 const AC_MIN_QUERY_LEN = 3
 const AC_MAX_RESULTS = 6
 
-// Zona de reparto para el autocomplete: cuadro "duro" alrededor del
-// restaurante (±0.2° ≈ ±22 km, cubre el área metropolitana). Los resultados
-// FUERA de este cuadro solo se buscan si dentro no hay nada decente: evita
-// el clásico "Calle Mayor 25" de Galapagar cuando repartimos por Madrid.
+// Zona de reparto para el autocomplete de Photon/Nominatim: cuadro "duro"
+// alrededor del restaurante (±0.2° ≈ ±22 km). Los resultados FUERA de este
+// cuadro solo se buscan si dentro no hay nada decente.
 const AC_ZONE_BOX_DEG = 0.2
 
 // Nominatim exige como máximo ~1 petición/segundo. El autocomplete es el
@@ -218,10 +434,9 @@ interface PhotonFeature {
   }
 }
 
-/** Sugerencia con metadatos internos para el enriquecimiento de portal:
- *  viajan en la respuesta (inofensivos para el cliente) y permiten saber
- *  si una dirección trae número real, sintetizar entradas "planas" y
- *  estimar portales entre los vecinos. */
+/** Sugerencia con metadatos internos para el ranking y la fusión de
+ *  fuentes: viajan en la respuesta (inofensivos para el cliente) y permiten
+ *  saber si una dirección trae número real y de qué tipo de sitio se trata. */
 interface RichSuggestion extends AddressSuggestion {
   /** Número de portal real si la dirección/POI lo trae. */
   portal?: number
@@ -231,6 +446,9 @@ interface RichSuggestion extends AddressSuggestion {
   cityLine?: string
   /** El portal es una posición estimada por interpolación. */
   approximate?: boolean
+  /** street = calle/portal · poi = punto con nombre propio y dirección ·
+   *  place = lugar o localidad sin calle ("Puerta del Sol", "Santa Fe"). */
+  kind?: 'street' | 'poi' | 'place'
 }
 
 /** Convierte una feature de Photon en sugerencia de 2 líneas. */
@@ -249,13 +467,21 @@ function photonToSuggestion(f: PhotonFeature): RichSuggestion | null {
 
   let main: string
   let secondary: string
+  let kind: RichSuggestion['kind'] = 'street'
   if (p.name && streetLine && p.name !== streetLine) {
     // POI con nombre propio: "Museo del Prado" / "Calle Ruiz de Alarcón 23, 28014 Madrid"
     main = p.name
     secondary = [streetLine, cityLine].filter(Boolean).join(', ') + country
+    kind = 'poi'
+  } else if (!streetLine && p.name) {
+    // Lugar/POI sin calle: "Puerta del Sol", "Santa Fe"
+    main = p.name
+    secondary = cityLine + country
+    kind = 'place'
   } else {
     main = streetLine || p.name || cityLine || p.country || 'Sin nombre'
     secondary = cityLine + country
+    kind = streetLine ? 'street' : 'place'
   }
 
   const portal = p.housenumber ? Number.parseInt(p.housenumber, 10) : NaN
@@ -269,6 +495,7 @@ function photonToSuggestion(f: PhotonFeature): RichSuggestion | null {
     portal: Number.isFinite(portal) ? portal : undefined,
     streetText: p.street || undefined,
     cityLine: cityLine || undefined,
+    kind,
   }
 }
 
@@ -353,13 +580,14 @@ function nominatimToSuggestion(r: GeoPoint): RichSuggestion {
     portal: portalMatch ? Number(portalMatch[1]) : undefined,
     streetText: streetText ?? (portalMatch ? undefined : main),
     cityLine: cityLine || undefined,
+    kind: 'street',
   }
 }
 
 /** Respaldo/enriquecimiento con Nominatim (mismo proveedor de datos, otro
- * servicio). Su punto fuerte: si el PORTAL "Calle Mayor 25" no existe en
- * OSM, devuelve la propia CALLE de la zona en vez de portales con el mismo
- * nombre de otras localidades (que es lo que hace Photon). */
+ *  servicio). Su punto fuerte: si el PORTAL "Calle Mayor 25" no existe en
+ *  OSM, devuelve la propia CALLE de la zona en vez de portales con el mismo
+ *  nombre de otras localidades (que es lo que hace Photon). */
 async function searchNominatimSuggestions(
   q: string,
   bias?: { lat: number; lng: number },
@@ -385,21 +613,16 @@ function dedupeSuggestions(list: AddressSuggestion[]): AddressSuggestion[] {
 
 /* ------------------- Relevancia de las sugerencias ------------------- *
  *
- * Problema real: al teclear "calle mayor, 25", Photon prioriza el match
- * exacto de portal — y como el 25 de la Calle Mayor de Madrid no está
- * indexado en OSM, gana el "Calle Mayor 25" de Galapagar/Villaviciosa…
- * aunque el reparto sea urbano. La solución combina 4 cosas:
+ * Puntuar cada sugerencia contra lo tecleado. Se usa para:
+ *  - quitar de los resultados de ArcGIS el ruido que no encaja
+ *    ("Calle Vía 1" cuando se buscaba "gran vía 1"),
+ *  - decidir qué POIs de Photon complementan la lista,
+ *  - y ordenar/filtrar en la cadena de respaldo OSM (Photon + Nominatim).
  *
- *  1. bbox de Photon = filtro DURO a la zona de reparto (no solo sesgo).
- *  2. Nominatim acotado como 2ª fuente SIEMPRE que la consulta trae
- *     número de portal (Photon es débil ahí) y también cuando no encuentra
- *     nada decente: devuelve la propia CALLE aunque el portal no exista.
- *  3. Puntuar cada sugerencia contra lo tecleado: los tokens de calle deben
- *    encajar por palabra completa ("mayor" ≠ "mayorazgo"), el número de
- *    portal suma, y la coincidencia por prefijo ("Gran Vía 1" empieza por
- *    "gran vía") manda sobre la dispersa ("…de la Gran Vía del Este").
- *  4. Ordenar: mejor puntuación, luego más cercano al restaurante; el
- *     ruido que no encaja se descarta si hay algo bueno.
+ * Reglas: los tokens de calle deben encajar por palabra completa ("mayor"
+ * NO encaja en "mayorazgo"), el número de portal suma, y la coincidencia
+ * por prefijo ("Gran Vía 1" empieza por "gran vía") manda sobre la
+ * dispersa ("…de la Gran Vía del Este").
  * ------------------------------------------------------------------- */
 
 function deaccent(s: string): string {
@@ -477,8 +700,7 @@ function rankSuggestions(
       const dist = bias ? distanceKm(bias, s) : 0
       // Bonus de cercanía: un match real a <2 km del restaurante (donde
       // cae la gran mayoría de repartos) gana empates contra matches
-      // exactos pero lejanos ("Plaza del Sol" de Alcorcón vs la Puerta
-      // del Sol de Madrid al teclear "plaza del sol 3").
+      // exactos pero lejanos.
       const nearBonus = raw >= 2 && bias && dist < 2 ? 1 : 0
       return { s, i, score: raw + nearBonus, dist }
     })
@@ -604,32 +826,82 @@ async function probePhotonAnchors(
   return results.filter((a): a is { num: number; lat: number; lng: number } => a !== null)
 }
 
-/**
- * Sugerencias de dirección para el desplegable del repartidor.
- * Devuelve como máximo 6 resultados relevantes para lo tecleado y
- * cercanos al restaurante, en tres tandas (solo se amplía si hace falta):
+/* --------------------- Fusión de resultados ArcGIS --------------------- *
  *
- *  1. Photon acotado a la zona de reparto (filtro duro por bbox + sesgo).
- *  2. Nominatim acotado: siempre que la consulta traiga número de portal
- *     (Photon es flojo ahí) o si nada de Photon encaja; devuelve la propia
- *     calle de la zona aunque el portal no esté en OSM.
- *  3. Si sigue sin haber nada decente: Photon sin bbox (entregas lejanas
- *     legítimas, p. ej. "calle mayor 2, alcalá de henares").
- *  4. Si hay número de portal pero no está indexado: se estima su posición
- *     interpolando entre los portales vecinos de la misma calle y se añade
- *     una entrada "Calle X 25 · portal estimado" encima de la calle entera.
- */
-export async function autocompleteAddresses(
-  query: string,
+ * ArcGIS devuelve a veces el mismo sitio dos veces: el portal como
+ * PointAddress y como StreetAddress, o el mismo POI repetido. Se colapsan
+ * quedándose con la versión que trae número de portal.
+ * ------------------------------------------------------------------- */
+
+function isArcDuplicate(a: RichSuggestion, b: RichSuggestion): boolean {
+  if (distanceKm(a, b) > 0.5) return false
+  const sameCity = deaccent(a.cityLine ?? '') === deaccent(b.cityLine ?? '')
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'poi' || a.kind === 'place') {
+    return deaccent(a.main) === deaccent(b.main)
+  }
+  if (!a.streetText || !b.streetText) {
+    return deaccent(a.main) === deaccent(b.main) && sameCity
+  }
+  if (!sameStreet(a.streetText, b.streetText) || !sameCity) return false
+  // Misma calle y ciudad: si ambos traen número son el mismo sitio solo si
+  // coincide; si uno no lo trae, la calle "pelada" sobra frente al portal.
+  if (a.portal !== undefined && b.portal !== undefined) return a.portal === b.portal
+  return true
+}
+
+function mergeArcCandidates(list: RichSuggestion[]): RichSuggestion[] {
+  const out: RichSuggestion[] = []
+  for (const s of list) {
+    const i = out.findIndex((o) => isArcDuplicate(o, s))
+    if (i < 0) {
+      out.push(s)
+      continue
+    }
+    // Quedarse con la versión que trae portal (posición del edificio)
+    if (out[i].portal === undefined && s.portal !== undefined) out[i] = s
+  }
+  return out
+}
+
+/** Añade a los resultados de ArcGIS lo que Photon hace mejor: POIs y
+ *  lugares con nombre propio que ArcGIS no listó. Las CALLES de Photon
+ *  solo se añaden si ArcGIS trajo menos de 3 resultados (query parcial). */
+function complementWithPhoton(
+  base: RichSuggestion[],
+  photon: RichSuggestion[],
+  match: QueryMatch,
+): RichSuggestion[] {
+  if (photon.length === 0) return base
+  const dupOfBase = (p: RichSuggestion) =>
+    base.some((b) => distanceKm(b, p) < 0.35 || deaccent(b.main) === deaccent(p.main))
+  const extras = photon.filter(
+    (p) =>
+      (p.kind === 'poi' || p.kind === 'place') &&
+      scoreSuggestion(p, match) >= 2 &&
+      !dupOfBase(p),
+  )
+  const streets =
+    base.length < 3
+      ? photon.filter(
+          (p) => p.kind === 'street' && scoreSuggestion(p, match) >= 3 && !dupOfBase(p),
+        )
+      : []
+  return [...base, ...extras, ...streets]
+}
+
+/* ------------------------ Cadena de respaldo OSM ------------------------ *
+ *
+ * Solo se usa si ArcGIS no devuelve nada (consultas parciales o servicio
+ * caído). `photonZone` ya se trajo en paralelo: Nominatim acotado → Photon
+ * abierto → interpolación del portal entre vecinos indexados.
+ * ------------------------------------------------------------------- */
+
+async function fallbackSuggestions(
+  q: string,
+  photonZone: RichSuggestion[],
   bias?: { lat: number; lng: number },
 ): Promise<AddressSuggestion[]> {
-  const q = normalizeQuery(query)
-  if (q.length < AC_MIN_QUERY_LEN) return []
-
-  const biasKey = bias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : 'none'
-  const cacheKey = `${q}|${biasKey}`
-  if (acCache.has(cacheKey)) return acCache.get(cacheKey) ?? []
-
   const match = matchOf(q)
   const portalNum = match.portal ? Number.parseInt(match.portal, 10) : NaN
   const hasGood = (list: RichSuggestion[]) =>
@@ -644,18 +916,10 @@ export async function autocompleteAddresses(
     sameStreet(s.streetText, stripCityWords(match.phrase, s))
   const hasExactPortal = (list: RichSuggestion[]) => list.some(isExactPortal)
 
-  const collected: RichSuggestion[] = []
+  const collected: RichSuggestion[] = [...photonZone]
 
-  // 1. Photon dentro de la zona de reparto
-  try {
-    collected.push(...(await searchPhoton(q, bias, { zoneOnly: true })))
-  } catch {
-    /* se intenta con las siguientes fuentes */
-  }
-
-  // 2. Nominatim acotado. SIEMPRE que la consulta traiga número de portal
-  //    sin resolver por Photon (Photon es flojo con "calle + número":
-  //    portales sin indexar) y también si Photon no encontró nada decente.
+  // 1. Nominatim acotado: SIEMPRE que la consulta traiga número de portal
+  //    sin resolver por Photon y también si Photon no encontró nada decente.
   if (!hasExactPortal(collected) && (match.portal || !hasGood(collected))) {
     try {
       if (await takeNominatimSlot()) {
@@ -666,7 +930,7 @@ export async function autocompleteAddresses(
     }
   }
 
-  // 3. Abrir la búsqueda (solo si con bias había zona cerrada)
+  // 2. Abrir la búsqueda (solo si con bias había zona cerrada)
   if (!hasGood(collected) && bias) {
     try {
       collected.push(...(await searchPhoton(q, bias)))
@@ -675,7 +939,7 @@ export async function autocompleteAddresses(
     }
   }
 
-  // 4. Portal a nivel de edificio: número exacto → entrada "plana";
+  // 3. Portal a nivel de edificio: número exacto → entrada "plana";
   //    número sin indexar → posición interpolada entre portales vecinos.
   if (Number.isFinite(portalNum) && portalNum >= 1) {
     const exact = collected.find(isExactPortal)
@@ -733,7 +997,67 @@ export async function autocompleteAddresses(
     }
   }
 
-  const final = rankSuggestions(dedupeSuggestions(collected), match, bias)
+  return rankSuggestions(dedupeSuggestions(collected), match, bias)
+}
+
+/**
+ * Sugerencias de dirección para el desplegable del repartidor (máx. 6).
+ * Véase el diagrama al inicio de la sección AUTOCOMPLETE.
+ */
+export async function autocompleteAddresses(
+  query: string,
+  bias?: { lat: number; lng: number },
+): Promise<AddressSuggestion[]> {
+  const q = normalizeQuery(query)
+  if (q.length < AC_MIN_QUERY_LEN) return []
+
+  const biasKey = bias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : 'none'
+  const cacheKey = `${q}|${biasKey}`
+  if (acCache.has(cacheKey)) return acCache.get(cacheKey) ?? []
+
+  const match = matchOf(q)
+
+  // Motor principal (ArcGIS) y complemento (Photon) en paralelo.
+  const [arcSettled, photonSettled] = await Promise.allSettled([
+    searchArcGIS(q, bias),
+    bias ? searchPhoton(q, bias, { zoneOnly: true }) : searchPhoton(q),
+  ])
+  const arc = arcSettled.status === 'fulfilled' ? arcSettled.value : []
+  const photon = photonSettled.status === 'fulfilled' ? photonSettled.value : []
+
+  let final: AddressSuggestion[] | null = null
+  if (arc.length > 0) {
+    // 1. Colapsar duplicados de ArcGIS y quitar el ruido que no encaja con
+    //    lo tecleado (si nada encaja, se confía en el ranking del motor).
+    let base = mergeArcCandidates(arc)
+    const kept = base.filter((s) => scoreSuggestion(s, match) > 0)
+    if (kept.length > 0) base = kept
+    // 2. Complementar con POIs/lugares de Photon y recortar al límite.
+    final = dedupeSuggestions(complementWithPhoton(base, photon, match)).slice(
+      0,
+      AC_MAX_RESULTS,
+    )
+  } else if (photon.length === 0) {
+    // Consulta PARCIAL ("calle trev"): findAddressCandidates no sugiere con
+    // prefijos y Photon tampoco encontró nada. El endpoint `suggest` de
+    // ArcGIS sí está hecho para esto; cada sugerencia se resuelve a
+    // coordenadas con su magicKey (en paralelo).
+    try {
+      const sugs = await searchArcGISSuggest(q, bias)
+      const resolved = (
+        await Promise.all(sugs.slice(0, 5).map((s) => resolveArcGISMagic(s.text, s.magicKey)))
+      ).filter((s): s is RichSuggestion => s !== null)
+      if (resolved.length > 0) {
+        final = dedupeSuggestions(mergeArcCandidates(resolved)).slice(0, AC_MAX_RESULTS)
+      }
+    } catch {
+      /* a la cadena de respaldo OSM */
+    }
+  }
+  if (final === null) {
+    // Respaldo OpenStreetMap (Photon ya traído en paralelo).
+    final = await fallbackSuggestions(q, photon, bias)
+  }
 
   if (acCache.size >= AC_CACHE_LIMIT) {
     const oldest = acCache.keys().next().value
