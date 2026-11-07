@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getSessionFromRequest } from '@/lib/session'
+import { getCommissionPct, applyCommission } from '@/lib/settings'
 
 export async function GET(req: Request) {
   const session = await getSessionFromRequest(req)
   if (!session || (session.role !== 'driver' && session.role !== 'admin')) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   }
+
+  // El admin ve la tarifa real; el repartidor ve el neto (con comisión descontada).
+  const commissionPct = session.role === 'admin' ? 0 : await getCommissionPct()
 
   // Repartidor: SUS repartos completados (los que él aceptó y entregó).
   // Admin: todos.
@@ -25,7 +29,8 @@ export async function GET(req: Request) {
     0,
   )
   const avgMs = totalServices > 0 ? Math.round(totalMs / totalServices) : 0
-  const totalEur = completed.reduce((acc, d) => acc + (d.fee ?? 0), 0)
+  // Tarifa neta para repartidores, real para admin
+  const totalEur = completed.reduce((acc, d) => acc + (applyCommission(d.fee, commissionPct) ?? 0), 0)
 
   // Per-restaurant breakdown
   const byRestaurantMap = new Map<
@@ -38,7 +43,7 @@ export async function GET(req: Request) {
       byRestaurantMap.get(key) || { name: d.restaurant.name, count: 0, totalMs: 0, totalEur: 0 }
     entry.count += 1
     entry.totalMs += new Date(d.deliveredAt!).getTime() - new Date(d.requestedAt).getTime()
-    entry.totalEur += d.fee ?? 0
+    entry.totalEur += applyCommission(d.fee, commissionPct) ?? 0
     byRestaurantMap.set(key, entry)
   }
   const byRestaurant = Array.from(byRestaurantMap.entries())
