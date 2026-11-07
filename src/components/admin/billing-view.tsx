@@ -231,18 +231,18 @@ function CommissionCard() {
     queryKey: ['admin', 'settings'],
     queryFn: () => api.adminGetSettings(),
   })
-  const commissionEur = data?.commissionEur ?? 0
+  const commissionPct = data?.commissionPct ?? 0
 
   function startEdit() {
-    setValue(String(commissionEur))
+    setValue(String(commissionPct))
     setEditing(true)
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     const n = Number(value.replace(',', '.'))
-    if (!Number.isFinite(n) || n < 0 || n > 50) {
-      toast.error('La comisión debe ser un número entre 0 y 50 €')
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      toast.error('La comisión debe ser un porcentaje entre 0 y 100')
       return
     }
     setSaving(true)
@@ -251,7 +251,7 @@ function CommissionCard() {
       toast.success('Comisión actualizada', {
         description:
           n > 0
-            ? `Se descuentan ${formatEur(n)} de cada reparto para repartidores y restaurantes.`
+            ? `Se descuenta el ${n}% de cada reparto para los repartidores. El restaurante y el admin ven la tarifa real.`
             : 'Comisión desactivada: todos ven la tarifa real.',
       })
       qc.invalidateQueries({ queryKey: ['admin', 'settings'] })
@@ -282,20 +282,20 @@ function CommissionCard() {
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
                   inputMode="decimal"
-                  className="h-9 w-24"
+                  className="h-9 w-20"
                   autoFocus
                 />
-                <span className="text-sm text-muted-foreground">€ por reparto</span>
+                <span className="text-sm text-muted-foreground">% por reparto</span>
               </form>
             ) : (
               <p className="text-xl font-bold leading-tight tabular-nums sm:text-2xl">
-                {formatEur(commissionEur)}
-                <span className="ml-1.5 text-sm font-normal text-muted-foreground">por reparto</span>
+                {commissionPct}%
+                <span className="ml-1.5 text-sm font-normal text-muted-foreground">de comisión</span>
               </p>
             )}
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Se descuenta de la tarifa que ven repartidores y restaurantes. El
-              admin siempre ve la tarifa real.
+              Se descuenta del reparto para los repartidores. El restaurante y
+              el admin ven siempre la tarifa real.
             </p>
           </div>
         </div>

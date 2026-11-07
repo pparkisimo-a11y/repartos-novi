@@ -7,7 +7,7 @@ import { geocodeAddress } from '@/lib/geocode'
 import { feeForDistanceKm } from '@/lib/fees'
 import { deliveryDistanceKm } from '@/lib/routing'
 import { serializeDelivery, DELIVERY_RESTAURANT_INCLUDE, type DeliveryStatus } from '@/lib/delivery'
-import { getCommissionEur, applyCommission } from '@/lib/settings'
+import { getCommissionPct } from '@/lib/settings'
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   PENDING: ['ACCEPTED', 'REJECTED', 'CANCELLED'],
@@ -177,21 +177,27 @@ export async function PATCH(
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
 
-  // El admin ve la tarifa real; repartidor y restaurante ven el neto.
-  const commission = session.role === 'admin' ? 0 : await getCommissionEur()
-  const dto = serializeDelivery(updated, session.role !== 'restaurant', commission)
+  // El admin ve la tarifa real; el restaurante también (lo que paga);
+  // el repartidor ve el neto (real menos comisión %).
+  const commissionPct = session.role === 'driver' ? await getCommissionPct() : 0
+  const dtoForRequester = serializeDelivery(updated, session.role !== 'restaurant', commissionPct)
+  // El restaurante siempre ve la tarifa real, venga quien venga la petición
+  const dtoForRestaurant = serializeDelivery(updated, false, 0)
+  // El repartidor siempre ve el neto
+  const commissionForDriver = await getCommissionPct()
+  const dtoForDriver = serializeDelivery(updated, true, commissionForDriver)
 
-  // Notify the restaurant in real time
+  // Notify the restaurant in real time (tarifa real)
   await realtimeEmit({
     event: 'delivery:update',
     room: `restaurant:${updated.restaurantId}`,
-    payload: dto,
+    payload: dtoForRestaurant,
   })
-  // Notify every driver (assigned ones + anyone watching the "all" view)
+  // Notify every driver (net fee)
   await realtimeEmit({
     event: 'delivery:update',
     room: 'driver',
-    payload: dto,
+    payload: dtoForDriver,
   })
 
   // --- Web Push (avisos con la app cerrada) ---
@@ -206,7 +212,7 @@ export async function PATCH(
       PICKED_UP: {
         title: 'Pedido recogido',
         body: updated.fee != null
-          ? `${session.name} ha recogido el pedido. Tarifa: ${applyCommission(updated.fee, commission)!.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`
+          ? `${session.name} ha recogido el pedido. Tarifa: ${updated.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`
           : `${session.name} ha recogido el pedido.`,
       },
       DELIVERED: {
@@ -245,5 +251,5 @@ export async function PATCH(
     )
   }
 
-  return NextResponse.json({ delivery: dto })
+  return NextResponse.json({ delivery: dtoForRequester })
 }

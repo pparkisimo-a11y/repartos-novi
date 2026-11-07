@@ -8,7 +8,7 @@ import {
   DELIVERY_RESTAURANT_INCLUDE,
   isActiveStatus,
 } from '@/lib/delivery'
-import { getCommissionEur } from '@/lib/settings'
+import { getCommissionPct } from '@/lib/settings'
 
 export async function GET(req: Request) {
   const session = await getSessionFromRequest(req)
@@ -44,7 +44,7 @@ export async function GET(req: Request) {
       include: DELIVERY_RESTAURANT_INCLUDE,
     })
     // El admin ve la tarifa real (sin comisión); el repartidor ve el neto.
-    const commission = session.role === 'admin' ? 0 : await getCommissionEur()
+    const commission = session.role === 'admin' ? 0 : await getCommissionPct()
     return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d, true, commission)) })
   }
 

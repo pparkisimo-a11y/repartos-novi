@@ -813,11 +813,11 @@ function PickupDialog({
   const feeConfig = delivery
     ? { baseEur: delivery.feeBaseEur, thresholdKm: delivery.feeThresholdKm, perExtraKmEur: delivery.feePerExtraKmEur }
     : undefined
-  // El repartidor ve la tarifa NETA (real menos la comisión de la plataforma).
-  // delivery.commissionEur viene del servidor ya ajustado para non-admin.
-  const commissionEur = delivery?.commissionEur ?? 0
+  // El repartidor ve la tarifa NETA (real menos la comisión % de la plataforma).
+  // delivery.commissionPct viene del servidor ya ajustado para el repartidor.
+  const commissionPct = delivery?.commissionPct ?? 0
   const rawFee = distanceKm != null ? feeForDistanceKm(distanceKm, feeConfig) : null
-  const fee = rawFee != null ? Math.max(0, Math.round((rawFee - commissionEur) * 100) / 100) : null
+  const fee = rawFee != null ? Math.max(0, Math.round((rawFee * (1 - commissionPct / 100)) * 100) / 100) : null
 
   const canSubmit = address.trim().length >= 4 && distanceKm != null && !submitting
 

@@ -63,8 +63,8 @@ export interface DeliveryDTO {
   feeBaseEur: number
   feeThresholdKm: number
   feePerExtraKmEur: number
-  /** Comisión de la plataforma descuentada de la tarifa para non-admin. */
-  commissionEur: number
+  /** Comisión (%) de la plataforma descuentada de la tarifa para el repartidor. */
+  commissionPct: number
 }
 
 /** Sugerencia de dirección del autocomplete (estilo Google Maps) que usa el

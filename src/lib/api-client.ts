@@ -288,11 +288,11 @@ export const api = {
 
   // Admin platform settings (commission per delivery)
   adminGetSettings: () =>
-    request<{ commissionEur: number }>('/api/admin/settings'),
-  adminSetCommission: (commissionEur: number) =>
-    request<{ commissionEur: number }>('/api/admin/settings', {
+    request<{ commissionPct: number }>('/api/admin/settings'),
+  adminSetCommission: (commissionPct: number) =>
+    request<{ commissionPct: number }>('/api/admin/settings', {
       method: 'PATCH',
-      body: JSON.stringify({ commissionEur }),
+      body: JSON.stringify({ commissionPct }),
     }),
 
   // Public contact form (leads)
