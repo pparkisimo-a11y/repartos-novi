@@ -53,15 +53,41 @@ function toMin(hhmm: string): number {
   return h * 60 + m
 }
 
+/** Zona horaria de la app: los horarios se interpretan en hora de Madrid. */
+const APP_TZ = 'Europe/Madrid'
+
+/**
+ * Convierte un Date a la hora local de Madrid (devuelve día de la semana y
+ * minutos desde medianoche en esa zona). El servidor puede estar en UTC pero
+ * los horarios negociados son hora local de los locales (Granada → Madrid).
+ */
+function toMadridParts(now: Date): { day: number; minutes: number } {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: APP_TZ,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const parts = fmt.formatToParts(now)
+  const weekday = parts.find((p) => p.type === 'weekday')?.value || ''
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value || '0')
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value || '0')
+  const dayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  }
+  return { day: dayMap[weekday] ?? 0, minutes: hour * 60 + minute }
+}
+
 /**
  * ¿El restaurante está abierto AHORA según su horario negociado?
+ * Los horarios se interpretan en hora de Madrid (zona horaria de la app).
  * Si el horario está vacío (no configurado), está CERRADO: el admin debe
  * negociar el horario con el local antes de que pueda pedir reparto.
  */
 export function isRestaurantOpen(s: Schedule, now: Date = new Date()): boolean {
   if (isScheduleEmpty(s)) return false
-  const day = now.getDay()
-  const minutes = now.getHours() * 60 + now.getMinutes()
+  const { day, minutes } = toMadridParts(now)
 
   // Sin días configurados → cualquier día vale
   const dayOk = s.days.length === 0 || s.days.includes(day)
