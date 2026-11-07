@@ -112,11 +112,22 @@ export function AddressAutocomplete({
   }, [value, bias])
 
   function select(s: AddressSuggestion) {
+    // Selección idempotente: si se vuelve a pulsar la misma sugerencia
+    // (doble tap / tap fantasma), no se repite el cálculo ni el onSelect.
+    const same =
+      selectedRef.current != null &&
+      selectedRef.current.label === s.label &&
+      selectedRef.current.lat === s.lat &&
+      selectedRef.current.lng === s.lng
     selectedRef.current = s
     onChange(s.label)
     setOpen(false)
     setActiveIndex(-1)
-    onSelect(s)
+    // Vaciar las sugerencias: el desplegable desaparece del DOM y no se
+    // puede volver a pulsar nada. Volverá a aparecer si se edita el texto.
+    setItems([])
+    setSearched('')
+    if (!same) onSelect(s)
     inputRef.current?.focus()
   }
 
@@ -130,7 +141,12 @@ export function AddressAutocomplete({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open || items.length === 0) {
-      if (e.key === 'ArrowDown' && value.trim().length >= MIN_QUERY && !loading) {
+      if (
+        e.key === 'ArrowDown' &&
+        !selectedRef.current &&
+        value.trim().length >= MIN_QUERY &&
+        !loading
+      ) {
         setOpen(true)
       }
       return
@@ -171,6 +187,11 @@ export function AddressAutocomplete({
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => {
+            // Nunca reabrir si ya hay una selección válida: al pulsar una
+            // sugerencia el input se re-enfoca y este handler se dispara
+            // justo después del setOpen(false) — sin este guardia el
+            // desplegable se volvía a abrir (bug del dropdown que no cerraba).
+            if (selectedRef.current) return
             if (value.trim().length >= MIN_QUERY && items.length > 0) setOpen(true)
           }}
           placeholder={placeholder}
@@ -214,6 +235,10 @@ export function AddressAutocomplete({
               role="option"
               aria-selected={i === activeIndex}
               onMouseEnter={() => setActiveIndex(i)}
+              // Evita que el input pierda el foco al pulsar (y con ello el
+              // ciclo blur→re-focus que reabría el desplegable), y mantiene
+              // el teclado abierto en móvil como hace Google Maps.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => select(s)}
               className={`flex w-full items-start gap-2.5 border-b border-border/60 px-3 py-2.5 text-left last:border-b-0 ${
                 i === activeIndex ? 'bg-accent' : 'bg-transparent'
