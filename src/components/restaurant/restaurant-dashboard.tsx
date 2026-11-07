@@ -34,10 +34,13 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api-client'
 import type { AppUser, DeliveryDTO } from '@/lib/types'
 import { StatusBadge } from '@/components/status-badge'
-import { OrdersGroup } from '@/components/shared/orders-group'
+import {
+  CollapsibleOrderCard,
+  MiniStepper,
+  OrdersSectionLabel,
+} from '@/components/shared/order-collapsible'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
-import { useNow } from '@/hooks/use-now'
 import { PushBell } from '@/components/pwa/push-bell'
 import { formatEur, formatKm } from '@/lib/fees'
 import {
@@ -83,30 +86,28 @@ export function RestaurantDashboard({
     [data],
   )
 
-  // Grupos expandibles: si un repartidor lleva varios pedidos a la vez se
-  // contraen en una cabecera compacta (y los que esperan repartidor también).
-  // Los sueltos se muestran como siempre.
-  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
-  const toggleGroup = (key: string) =>
-    setOpenGroups((prev) => {
+  // Puede haber VARIOS repartos en curso a la vez. Los que esperan
+  // repartidor (PENDING) van GRANDES como siempre; los que ya están en
+  // marcha se pliegan solos y se abren al tocarlos.
+  const [openOrders, setOpenOrders] = useState<ReadonlySet<string>>(new Set())
+  const toggleOrder = (id: string) =>
+    setOpenOrders((prev) => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
 
-  const byDriver = new Map<string, DeliveryDTO[]>()
-  for (const d of actives) {
-    const k = d.driverId ?? 'none'
-    const list = byDriver.get(k)
-    if (list) list.push(d)
-    else byDriver.set(k, [d])
-  }
-  // Primero los que esperan repartidor (necesitan atención), luego por
-  // repartidor en el orden en que aparecen.
-  const driverGroups = [...byDriver.entries()]
-    .sort(([a], [b]) => (a === 'none' ? -1 : b === 'none' ? 1 : 0))
-    .map(([k, items]) => ({ key: k, items }))
+  // Pendientes primero (el más antiguo esperando, primero); luego los que
+  // ya están en marcha, también del más antiguo al más reciente.
+  const byOldest = (a: DeliveryDTO, b: DeliveryDTO) =>
+    a.requestedAt.localeCompare(b.requestedAt)
+  const pendingActives = actives
+    .filter((d) => d.status === 'PENDING')
+    .sort(byOldest)
+  const inProgressActives = actives
+    .filter((d) => d.status === 'ACCEPTED' || d.status === 'PICKED_UP')
+    .sort(byOldest)
 
   useEffect(() => {
     const onUpdate = (payload: unknown) => {
@@ -228,45 +229,36 @@ export function RestaurantDashboard({
             <RequestCard onRequest={() => setRequestOpen(true)} />
           ) : (
             <>
-              {driverGroups.map(({ key, items }) => {
-                // Un solo pedido → tarjeta normal, sin grupo
-                if (items.length === 1) {
-                  return <ActiveDeliveryCard key={items[0].id} delivery={items[0]} />
-                }
-                const waiting = key === 'none'
-                const nPending = items.filter((d) => d.status === 'PENDING').length
-                const nAccepted = items.filter((d) => d.status === 'ACCEPTED').length
-                const nPicked = items.filter((d) => d.status === 'PICKED_UP').length
-                return (
-                  <OrdersGroup
-                    key={key}
-                    icon={waiting ? Clock : Bike}
-                    title={
-                      waiting
-                        ? 'Esperando repartidor'
-                        : items[0].driverName || 'Repartidor'
-                    }
-                    ordersCount={items.length}
-                    open={openGroups.has(key)}
-                    onToggle={() => toggleGroup(key)}
-                    chips={[
-                      ...(nPending > 0
-                        ? [{ label: `${nPending} ${nPending === 1 ? 'pendiente' : 'pendientes'}`, tone: 'amber' as const }]
-                        : []),
-                      ...(nAccepted > 0
-                        ? [{ label: `${nAccepted} en camino`, tone: 'primary' as const }]
-                        : []),
-                      ...(nPicked > 0
-                        ? [{ label: `${nPicked} ${nPicked === 1 ? 'recogido' : 'recogidos'}`, tone: 'violet' as const }]
-                        : []),
-                    ]}
-                  >
-                    {items.map((d) => (
-                      <ActiveDeliveryCard key={d.id} delivery={d} />
-                    ))}
-                  </OrdersGroup>
-                )
-              })}
+              {/* Esperan repartidor: GRANDES como siempre — son los vivos */}
+              {pendingActives.length > 0 && (
+                <OrdersSectionLabel
+                  icon={Clock}
+                  label="Esperando repartidor"
+                  count={pendingActives.length}
+                />
+              )}
+              {pendingActives.map((d) => (
+                <ActiveDeliveryCard key={d.id} delivery={d} />
+              ))}
+
+              {/* En marcha: se pliegan solos para no llenar la pantalla;
+                  un toque los vuelve a expandir del todo. */}
+              {inProgressActives.length > 0 && (
+                <OrdersSectionLabel
+                  icon={Bike}
+                  label="En curso"
+                  count={inProgressActives.length}
+                />
+              )}
+              {inProgressActives.map((d) => (
+                <ActiveDeliveryCard
+                  key={d.id}
+                  delivery={d}
+                  collapsible
+                  open={openOrders.has(d.id)}
+                  onToggle={() => toggleOrder(d.id)}
+                />
+              ))}
               {/* Con pedidos en curso también se puede solicitar otro */}
               <Card className="border-dashed">
                 <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
@@ -437,9 +429,18 @@ function RequestDialog({
   )
 }
 
-function ActiveDeliveryCard({ delivery }: { delivery: DeliveryDTO }) {
-  // Re-render every second so the elapsed counter and "hace Xs" tick live.
-  const now = useNow(1000)
+function ActiveDeliveryCard({
+  delivery,
+  collapsible = false,
+  open = false,
+  onToggle,
+}: {
+  delivery: DeliveryDTO
+  /** Plegable en los estados que ya están en marcha (no en PENDING). */
+  collapsible?: boolean
+  open?: boolean
+  onToggle?: () => void
+}) {
   const steps = [
     { key: 'PENDING', label: 'Solicitado', time: delivery.requestedAt, icon: Bell },
     { key: 'ACCEPTED', label: 'Aceptado', time: delivery.acceptedAt, icon: Bike },
@@ -447,28 +448,61 @@ function ActiveDeliveryCard({ delivery }: { delivery: DeliveryDTO }) {
     { key: 'DELIVERED', label: 'Entregado', time: delivery.deliveredAt, icon: CheckCircle2 },
   ]
   const currentIndex = steps.findIndex((s) => s.key === delivery.status)
-  const elapsedMin = Math.max(
-    0,
-    Math.round((now - new Date(delivery.requestedAt).getTime()) / 60000),
+  const isPending = delivery.status === 'PENDING'
+  const headerIcon = isPending
+    ? Bike
+    : delivery.status === 'ACCEPTED'
+      ? Bike
+      : PackageCheck
+
+  // Resumen siempre visible con la tarjeta plegada: quién lo lleva y por
+  // dónde va el reparto (mini progreso de puntos).
+  const summary = !isPending && (
+    <>
+      <Bike className="h-4 w-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+        <strong className="text-foreground">
+          {delivery.driverName || 'Repartidor'}
+        </strong>
+        {delivery.status === 'ACCEPTED'
+          ? ' en camino a tu local'
+          : ' está repartiendo'}
+        {delivery.customerName && (
+          <span className="hidden sm:inline"> · {delivery.customerName}</span>
+        )}
+      </span>
+      <MiniStepper total={steps.length} current={currentIndex} />
+    </>
   )
 
   return (
-    <Card className="overflow-hidden p-0 shadow-sm">
-      {/* Orange header */}
-      <div className="flex items-center justify-between bg-primary px-5 py-3.5 text-white">
-        <div className="flex items-center gap-2 font-bold">
-          <Bike className="h-4 w-4" />
-          Pedido #{delivery.id.slice(-6).toUpperCase()}
-        </div>
-        <div className="flex items-center gap-1.5 text-sm font-medium">
-          <Clock className="h-4 w-4" />
-          <span className="text-white/80">Tiempo:</span>
-          <span className="font-bold">{elapsedMin} min</span>
-        </div>
-      </div>
+    <CollapsibleOrderCard
+      icon={headerIcon}
+      orderId={delivery.id}
+      requestedAt={delivery.requestedAt}
+      collapsible={collapsible}
+      open={open}
+      onToggle={onToggle ?? (() => {})}
+      summary={summary}
+    >
+      <ActiveDeliveryCardBody delivery={delivery} steps={steps} currentIndex={currentIndex} />
+    </CollapsibleOrderCard>
+  )
+}
 
-      <CardContent className="p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+/** Cuerpo grande de la tarjeta: la línea de tiempo completa de siempre. */
+function ActiveDeliveryCardBody({
+  delivery,
+  steps,
+  currentIndex,
+}: {
+  delivery: DeliveryDTO
+  steps: { key: string; label: string; time: string | null; icon: typeof Bell }[]
+  currentIndex: number
+}) {
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {delivery.customerName && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
@@ -558,8 +592,7 @@ function ActiveDeliveryCard({ delivery }: { delivery: DeliveryDTO }) {
             )}
           </>
         )}
-      </CardContent>
-    </Card>
+    </>
   )
 }
 

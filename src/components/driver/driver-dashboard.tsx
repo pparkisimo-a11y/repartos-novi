@@ -21,6 +21,7 @@ import {
   Bell,
   User,
   Euro,
+  Navigation,
   Ruler,
   Search,
 } from 'lucide-react'
@@ -39,15 +40,16 @@ import {
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
 import type { AddressSuggestion, AppUser, DeliveryDTO } from '@/lib/types'
-import { StatusBadge } from '@/components/status-badge'
 import { MapView } from './map-view'
 import { AddressAutocomplete } from './address-autocomplete'
 import { StatsView } from '@/components/shared/stats-view'
 import { HistoryView } from '@/components/shared/history-view'
-import { OrdersGroup } from '@/components/shared/orders-group'
+import {
+  CollapsibleOrderCard,
+  OrdersSectionLabel,
+} from '@/components/shared/order-collapsible'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
-import { useNow } from '@/hooks/use-now'
 import { formatTime } from '@/lib/format'
 import { PushBell } from '@/components/pwa/push-bell'
 import { feeForDistanceKm, haversineKm, formatEur, formatKm, feeExplanation } from '@/lib/fees'
@@ -323,28 +325,22 @@ function PedidosView({
 }) {
   const hasActive = pending.length > 0 || inProgress.length > 0
 
-  // Grupos expandibles: si un restaurante tiene varios pedidos a la vez se
-  // contraen en una cabecera compacta (mejor vista general de noche, cuando
-  // un local saca varios repartos seguidos). Los sueltos van como siempre.
-  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
-  const toggleGroup = (key: string) =>
-    setOpenGroups((prev) => {
+  // Pedidos en curso abiertos (los PENDING van siempre grandes; los
+  // aceptados se pliegan y se abren aquí al tocarlos).
+  const [openOrders, setOpenOrders] = useState<ReadonlySet<string>>(new Set())
+  const toggleOrder = (id: string) =>
+    setOpenOrders((prev) => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
 
-  const byRestaurant = new Map<string, DeliveryDTO[]>()
-  for (const d of [...pending, ...inProgress]) {
-    const list = byRestaurant.get(d.restaurantId)
-    if (list) list.push(d)
-    else byRestaurant.set(d.restaurantId, [d])
-  }
-  const restaurantGroups = [...byRestaurant.values()]
-
-  const orderCardProps = (d: DeliveryDTO) => ({
+  const orderCardProps = (d: DeliveryDTO, collapsible: boolean) => ({
     delivery: d,
+    collapsible,
+    open: openOrders.has(d.id),
+    onToggle: () => toggleOrder(d.id),
     onAccept: () => onAccept(d),
     onReject: () => onReject(d),
     onPickup: () => onPickup(d),
@@ -355,7 +351,7 @@ function PedidosView({
     <div className="space-y-5">
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: orders (2 cols) */}
-        <div className="space-y-6 lg:col-span-2">
+        <div className="space-y-4 lg:col-span-2">
           {isLoading ? (
             <Card className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -374,37 +370,30 @@ function PedidosView({
             </Card>
           ) : (
             <>
-              {restaurantGroups.map((items) => {
-                // Un solo pedido del local → tarjeta normal, sin grupo
-                if (items.length === 1) {
-                  return <OrderCard key={items[0].id} {...orderCardProps(items[0])} />
-                }
-                const pend = items.filter((d) => d.status === 'PENDING').length
-                const prog = items.length - pend
-                const key = items[0].restaurantId
-                return (
-                  <OrdersGroup
-                    key={key}
-                    icon={Store}
-                    title={items[0].restaurantName}
-                    ordersCount={items.length}
-                    open={openGroups.has(key)}
-                    onToggle={() => toggleGroup(key)}
-                    chips={[
-                      ...(pend > 0
-                        ? [{ label: `${pend} ${pend === 1 ? 'pendiente' : 'pendientes'}`, tone: 'amber' as const }] 
-                        : []),
-                      ...(prog > 0
-                        ? [{ label: `${prog} en curso`, tone: 'primary' as const }]
-                        : []),
-                    ]}
-                  >
-                    {items.map((d) => (
-                      <OrderCard key={d.id} {...orderCardProps(d)} />
-                    ))}
-                  </OrdersGroup>
-                )
-              })}
+              {/* Pendientes: GRANDES como siempre — esperan decisión */}
+              {pending.length > 0 && (
+                <OrdersSectionLabel
+                  icon={Bell}
+                  label="Nuevas solicitudes"
+                  count={pending.length}
+                />
+              )}
+              {pending.map((d) => (
+                <OrderCard key={d.id} {...orderCardProps(d, false)} />
+              ))}
+
+              {/* En curso: se pliegan solos para no llenar la pantalla;
+                  un toque los vuelve a expandir del todo. */}
+              {inProgress.length > 0 && (
+                <OrdersSectionLabel
+                  icon={Bike}
+                  label="En curso"
+                  count={inProgress.length}
+                />
+              )}
+              {inProgress.map((d) => (
+                <OrderCard key={d.id} {...orderCardProps(d, true)} />
+              ))}
             </>
           )}
         </div>
@@ -485,187 +474,278 @@ function PedidosView({
 
 function OrderCard({
   delivery,
-  readOnly,
+  collapsible,
+  open,
+  onToggle,
   onAccept,
   onReject,
   onPickup,
   onDeliver,
 }: {
   delivery: DeliveryDTO
-  readOnly?: boolean
+  /** Plegable en los estados que ya están en marcha (no en PENDING). */
+  collapsible: boolean
+  open: boolean
+  onToggle: () => void
   onAccept: () => void
   onReject: () => void
   onPickup: () => void
   onDeliver: () => void
 }) {
   const isPending = delivery.status === 'PENDING'
-  // Re-render every second so the elapsed counter ticks live.
-  const now = useNow(1000)
-  // elapsed time
-  const elapsedMin = Math.max(
-    0,
-    Math.round(
-      (now - new Date(delivery.requestedAt).getTime()) / 60000,
-    ),
+  const headerIcon = isPending
+    ? Bell
+    : delivery.status === 'ACCEPTED'
+      ? Bike
+      : PackageCheck
+  const mapsUrl = delivery.dropoffAddress
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(delivery.dropoffAddress)}`
+    : null
+
+  // Resumen siempre visible con la tarjeta plegada: a dónde ir y de quién es.
+  const summary = !isPending && (
+    delivery.status === 'ACCEPTED' ? (
+      <>
+        <Store className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+          Recoger en{' '}
+          <strong className="text-foreground">{delivery.restaurantName}</strong>
+          {delivery.customerName && (
+            <>
+              {' · '}
+              <span className="font-semibold text-foreground">{delivery.customerName}</span>
+            </>
+          )}
+          <span className="hidden sm:inline"> · {delivery.restaurantAddress}</span>
+        </span>
+      </>
+    ) : (
+      <>
+        <MapPin className="h-4 w-4 shrink-0 text-violet-500" />
+        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+          Entregar en{' '}
+          {delivery.dropoffAddress ? (
+            <strong className="text-foreground">{delivery.dropoffAddress}</strong>
+          ) : (
+            'dirección pendiente'
+          )}
+        </span>
+        {delivery.distanceKm != null && (
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {formatKm(delivery.distanceKm)}
+          </span>
+        )}
+        {delivery.fee != null && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+            <Euro className="h-3 w-3" />
+            {formatEur(delivery.fee)}
+          </span>
+        )}
+        {mapsUrl && (
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border bg-card px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5"
+          >
+            <Navigation className="h-3.5 w-3.5" />
+            Maps
+          </a>
+        )}
+      </>
+    )
+  )
+
+  // Acción principal compacta: se puede seguir trabajando sin expandir.
+  const collapsedAction = !isPending && (
+    delivery.status === 'ACCEPTED' ? (
+      <Button
+        onClick={onPickup}
+        className="h-11 w-full bg-primary text-sm font-semibold text-white hover:bg-primary/90"
+      >
+        <PackageCheck className="h-4 w-4" />
+        He recogido el pedido
+      </Button>
+    ) : (
+      <Button
+        onClick={onDeliver}
+        className="h-11 w-full bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700"
+      >
+        <CheckCircle2 className="h-4 w-4" />
+        Marcar como entregado
+      </Button>
+    )
   )
 
   return (
-    <Card className="overflow-hidden p-0 shadow-sm">
-      {/* Orange header */}
-      <div className="flex items-center justify-between gap-3 bg-primary px-5 py-3.5 text-white">
-        <div className="flex min-w-0 items-center gap-2 font-bold">
-          <Bell className="h-4 w-4 shrink-0" />
-          <span className="truncate">Pedido #{delivery.id.slice(-6).toUpperCase()}</span>
+    <CollapsibleOrderCard
+      icon={headerIcon}
+      orderId={delivery.id}
+      requestedAt={delivery.requestedAt}
+      collapsible={collapsible}
+      open={open}
+      onToggle={onToggle}
+      summary={summary}
+      collapsedAction={collapsedAction}
+    >
+      <OrderCardBody
+        delivery={delivery}
+        onAccept={onAccept}
+        onReject={onReject}
+        onPickup={onPickup}
+        onDeliver={onDeliver}
+      />
+    </CollapsibleOrderCard>
+  )
+}
+
+/** Cuerpo grande de la tarjeta: igual que siempre (timeline, mapa y botones
+ *  grandes). Se muestra expandido y se pliega cuando el pedido está en
+ *  marcha. */
+function OrderCardBody({
+  delivery,
+  onAccept,
+  onReject,
+  onPickup,
+  onDeliver,
+}: {
+  delivery: DeliveryDTO
+  onAccept: () => void
+  onReject: () => void
+  onPickup: () => void
+  onDeliver: () => void
+}) {
+  const isPending = delivery.status === 'PENDING'
+
+  return (
+    <>
+      {delivery.customerName && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+            <User className="h-3.5 w-3.5" />
+            {delivery.customerName}
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium">
-          <Clock className="h-4 w-4" />
-          <span className="text-white/80">Tiempo:</span>
-          <span className="font-bold">{elapsedMin} min</span>
+      )}
+      <div className="grid gap-5 sm:grid-cols-2">
+        {/* Timeline */}
+        <div>
+          <div className="flex gap-3">
+            {/* line + nodes */}
+            <div className="flex flex-col items-center">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-white">
+                <Store className="h-4 w-4" />
+              </span>
+              <span className="my-1 h-8 w-px bg-border" />
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-white">
+                <Home className="h-4 w-4" />
+              </span>
+            </div>
+            <div className="flex flex-col justify-between py-0.5">
+              <div>
+                <p className="text-base font-bold">{delivery.restaurantName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {delivery.restaurantAddress}
+                </p>
+                <p className="mt-0.5 text-xs font-medium text-primary">
+                  Recoger aquí
+                </p>
+              </div>
+              <div>
+                <p className="text-base font-bold">Entrega</p>
+                {delivery.dropoffAddress ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      {delivery.dropoffAddress}
+                    </p>
+                    {delivery.fee != null && (
+                      <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                        <Euro className="h-3 w-3" />
+                        {formatKm(delivery.distanceKm)} · Tarifa {formatEur(delivery.fee)}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Destino: te lo indican al recoger
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      El cliente y la dirección te los dan en el restaurante
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Timestamps row */}
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            <Stat label="Solicitado" value={formatTime(delivery.requestedAt)} />
+            <Stat label="Aceptado" value={formatTime(delivery.acceptedAt)} />
+            <Stat label="Recogido" value={formatTime(delivery.pickedUpAt)} />
+          </div>
         </div>
+
+        {/* Map (only once accepted/in progress) */}
+        {!isPending ? (
+          <MapView
+            lat={delivery.lat}
+            lng={delivery.lng}
+            label={delivery.restaurantName}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
+            <MapPin className="mb-2 h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm font-medium">Ubicación disponible al aceptar</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {delivery.restaurantName} · {delivery.restaurantAddress}
+            </p>
+          </div>
+        )}
       </div>
 
-      <CardContent className="p-5">
-        {readOnly && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              <Bike className="h-3.5 w-3.5" />
-              {delivery.driverName
-                ? `Repartidor: ${delivery.driverName}`
-                : 'Sin repartidor asignado'}
-            </span>
-            <StatusBadge status={delivery.status} showDot={false} />
+      {/* Actions — Aceptar/Rechazar lado a lado y con buen tamaño táctil */}
+      <div className="mt-5 space-y-3">
+        {isPending && (
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              onClick={onReject}
+              variant="outline"
+              className="h-14 border-2 border-rose-200 bg-rose-50/60 text-base font-semibold text-rose-600 transition-transform hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700 active:scale-[0.98]"
+            >
+              <X className="h-5 w-5" />
+              Rechazar
+            </Button>
+            <Button
+              onClick={onAccept}
+              className="h-14 bg-primary text-base font-semibold text-white shadow-sm transition-transform hover:bg-primary/90 active:scale-[0.98]"
+            >
+              <Check className="h-5 w-5" />
+              Aceptar
+            </Button>
           </div>
         )}
-        {delivery.customerName && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
-              <User className="h-3.5 w-3.5" />
-              {delivery.customerName}
-            </span>
-          </div>
+        {delivery.status === 'ACCEPTED' && (
+          <Button
+            onClick={onPickup}
+            className="h-14 w-full bg-primary text-base font-semibold text-white shadow-sm transition-transform hover:bg-primary/90 active:scale-[0.98]"
+          >
+            <PackageCheck className="h-5 w-5" />
+            He recogido el pedido
+          </Button>
         )}
-        <div className="grid gap-5 sm:grid-cols-2">
-          {/* Timeline */}
-          <div>
-            <div className="flex gap-3">
-              {/* line + nodes */}
-              <div className="flex flex-col items-center">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-white">
-                  <Store className="h-4 w-4" />
-                </span>
-                <span className="my-1 h-8 w-px bg-border" />
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-white">
-                  <Home className="h-4 w-4" />
-                </span>
-              </div>
-              <div className="flex flex-col justify-between py-0.5">
-                <div>
-                  <p className="text-base font-bold">{delivery.restaurantName}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {delivery.restaurantAddress}
-                  </p>
-                  <p className="mt-0.5 text-xs font-medium text-primary">
-                    Recoger aquí
-                  </p>
-                </div>
-                <div>
-                  <p className="text-base font-bold">Entrega</p>
-                  {delivery.dropoffAddress ? (
-                    <>
-                      <p className="text-sm text-muted-foreground">
-                        {delivery.dropoffAddress}
-                      </p>
-                      {delivery.fee != null && (
-                        <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                          <Euro className="h-3 w-3" />
-                          {formatKm(delivery.distanceKm)} · Tarifa {formatEur(delivery.fee)}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-muted-foreground">
-                        Destino: te lo indican al recoger
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        El cliente y la dirección te los dan en el restaurante
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Timestamps row */}
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <Stat label="Solicitado" value={formatTime(delivery.requestedAt)} />
-              <Stat label="Aceptado" value={formatTime(delivery.acceptedAt)} />
-              <Stat label="Recogido" value={formatTime(delivery.pickedUpAt)} />
-            </div>
-          </div>
-
-          {/* Map (only once accepted/in progress) */}
-          {!isPending ? (
-            <MapView
-              lat={delivery.lat}
-              lng={delivery.lng}
-              label={delivery.restaurantName}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
-              <MapPin className="mb-2 h-8 w-8 text-muted-foreground/50" />
-              <p className="text-sm font-medium">Ubicación disponible al aceptar</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {delivery.restaurantName} · {delivery.restaurantAddress}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Actions — Acceptar/Rechazar lado a lado y con buen tamaño táctil */}
-        {!readOnly && (
-          <div className="mt-5 space-y-3">
-            {isPending && (
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  onClick={onReject}
-                  variant="outline"
-                  className="h-14 border-2 border-rose-200 bg-rose-50/60 text-base font-semibold text-rose-600 transition-transform hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700 active:scale-[0.98]"
-                >
-                  <X className="h-5 w-5" />
-                  Rechazar
-                </Button>
-                <Button
-                  onClick={onAccept}
-                  className="h-14 bg-primary text-base font-semibold text-white shadow-sm transition-transform hover:bg-primary/90 active:scale-[0.98]"
-                >
-                  <Check className="h-5 w-5" />
-                  Aceptar
-                </Button>
-              </div>
-            )}
-            {delivery.status === 'ACCEPTED' && (
-              <Button
-                onClick={onPickup}
-                className="h-14 w-full bg-primary text-base font-semibold text-white shadow-sm transition-transform hover:bg-primary/90 active:scale-[0.98]"
-              >
-                <PackageCheck className="h-5 w-5" />
-                He recogido el pedido
-              </Button>
-            )}
-            {delivery.status === 'PICKED_UP' && (
-              <Button
-                onClick={onDeliver}
-                className="h-14 w-full bg-emerald-600 text-base font-semibold text-white shadow-sm transition-transform hover:bg-emerald-700 active:scale-[0.98]"
-              >
-                <CheckCircle2 className="h-5 w-5" />
-                Marcar como entregado
-              </Button>
-            )}
-          </div>
+        {delivery.status === 'PICKED_UP' && (
+          <Button
+            onClick={onDeliver}
+            className="h-14 w-full bg-emerald-600 text-base font-semibold text-white shadow-sm transition-transform hover:bg-emerald-700 active:scale-[0.98]"
+          >
+            <CheckCircle2 className="h-5 w-5" />
+            Marcar como entregado
+          </Button>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </>
   )
 }
 
