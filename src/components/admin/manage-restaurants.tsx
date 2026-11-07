@@ -42,6 +42,8 @@ import { toast } from 'sonner'
 import { api, ApiError, type AdminRestaurant, type AdminDriver } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
 import { feeExplanation, type FeeConfig } from '@/lib/fees'
+import { AddressAutocomplete } from '@/components/driver/address-autocomplete'
+import type { AddressSuggestion } from '@/lib/types'
 
 export function ManageRestaurants() {
   const qc = useQueryClient()
@@ -344,8 +346,10 @@ function CreateRestaurantDialog({
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [address, setAddress] = useState('')
-  const [lat, setLat] = useState('')
-  const [lng, setLng] = useState('')
+  /** Sugerencia elegida del autocomplete: trae dirección normalizada + coords. */
+  const [selected, setSelected] = useState<AddressSuggestion | null>(null)
+  /** Coordenadas manuales (fallback «Mi ubicación» cuando no hay sugerencia). */
+  const [manualCoords, setManualCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [assignedDriverIds, setAssignedDriverIds] = useState<string[]>([])
 
   const { data: driversData } = useQuery({
@@ -360,10 +364,13 @@ function CreateRestaurantDialog({
     setUsername('')
     setPassword('')
     setAddress('')
-    setLat('')
-    setLng('')
+    setSelected(null)
+    setManualCoords(null)
     setAssignedDriverIds([])
   }
+
+  /** Coordenadas efectivas: las de la sugerencia elegida, o las manuales. */
+  const coords = selected ? { lat: selected.lat, lng: selected.lng } : manualCoords
 
   function toggleDriver(id: string) {
     setAssignedDriverIds((prev) =>
@@ -379,10 +386,14 @@ function CreateRestaurantDialog({
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLat(pos.coords.latitude.toFixed(6))
-        setLng(pos.coords.longitude.toFixed(6))
+        setManualCoords({
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+        })
         setLocating(false)
-        toast.success('Ubicación detectada')
+        toast.success('Ubicación detectada', {
+          description: 'Coordenadas fijadas. Escribe la dirección del local arriba.',
+        })
       },
       () => {
         setLocating(false)
@@ -394,8 +405,12 @@ function CreateRestaurantDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name || !username || !password || !address || !lat || !lng) {
+    if (!name || !username || !password || !address) {
       toast.error('Completa todos los campos')
+      return
+    }
+    if (!coords) {
+      toast.error('Selecciona la dirección del desplegable o usa «Mi ubicación»')
       return
     }
     setLoading(true)
@@ -404,9 +419,10 @@ function CreateRestaurantDialog({
         name,
         username,
         password,
-        address,
-        lat: Number(lat),
-        lng: Number(lng),
+        // Si hay sugerencia, su label es la dirección normalizada; si no, el texto tal cual
+        address: selected ? selected.label : address,
+        lat: coords.lat,
+        lng: coords.lng,
         assignedDriverIds,
       })
       toast.success('Restaurante creado', {
@@ -473,13 +489,21 @@ function CreateRestaurantDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="c-address">Dirección del local</Label>
-            <Input
+            <AddressAutocomplete
               id="c-address"
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Calle, número, ciudad"
-              required
+              onChange={setAddress}
+              onSelect={(s) => {
+                setSelected(s)
+                setManualCoords(null)
+              }}
+              onSelectionCleared={() => setSelected(null)}
+              placeholder="Calle, número, ciudad — salen sugerencias"
             />
+            <p className="text-xs text-muted-foreground">
+              Escribe la calle y número y elige la dirección del desplegable:
+              se rellena sola con la posición exacta en el mapa.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Repartidores que lo llevan</Label>
@@ -519,7 +543,10 @@ function CreateRestaurantDialog({
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Ubicación (lat, lng)</Label>
+              <Label className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5" />
+                Posición en el mapa
+              </Label>
               <Button
                 type="button"
                 variant="outline"
@@ -535,23 +562,27 @@ function CreateRestaurantDialog({
                 Mi ubicación
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={lat}
-                onChange={(e) => setLat(e.target.value)}
-                placeholder="Latitud"
-                inputMode="decimal"
-              />
-              <Input
-                value={lng}
-                onChange={(e) => setLng(e.target.value)}
-                placeholder="Longitud"
-                inputMode="decimal"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              El repartidor verá esta posición en el mapa al aceptar el pedido.
-            </p>
+            {coords ? (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+                <MapPin className="h-4 w-4 shrink-0" />
+                <span className="font-mono text-xs">
+                  {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                </span>
+                {selected ? (
+                  <span className="ml-auto text-xs font-medium">✓ Dirección seleccionada</span>
+                ) : (
+                  <span className="ml-auto text-xs font-medium">Ubicación GPS</span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 shrink-0" />
+                <span>
+                  Selecciona una dirección del desplegable de arriba, o pulsa
+                  «Mi ubicación» si estás en el local.
+                </span>
+              </div>
+            )}
           </div>
         </form>
         <DialogFooter className="gap-2">
