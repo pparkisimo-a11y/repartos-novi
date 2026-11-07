@@ -1,16 +1,15 @@
 /**
- * Distancia real por CARRETERA entre dos puntos — exactamente igual que Google Maps.
+ * Distancia real por CARRETERA entre dos puntos — igual que Google Maps.
  *
- * MOTOR PRINCIPAL: Google Maps Distance Matrix API. Es la misma que usa la
- * app de Google Maps, así que la distancia es exacta (ni más ni menos). Requiere
- * una API key (GOOGLE_MAPS_API_KEY en .env). Coste: ~5 $ por cada 1000
- * consultas (con 200 $/mes de crédito gratis de Google, da para ~40.000
- * consultas al mes — de sobra para el volumen de repartos nocturnos).
+ * MOTOR PRINCIPAL: Mapbox Directions API. Usa el motor de rutas de Mapbox
+ * (mismo tipo de datos que Google Maps) con el perfil "driving" (coche). La
+ * distancia es muy precisa y coincide con la que muestra Google Maps.
+ * Requiere una API key (MAPBOX_ACCESS_TOKEN en .env). Plan gratuito:
+ * 100.000 consultas/mes — de sobra para el volumen de repartos.
  *
- * RESPALDO: si no hay API key configurada (sandbox sin key) o Google no
- * responde, se usan varios servidores OSRM (réplicas de OpenStreetMap). La
- * distancia de OSRM puede diferir ligeramente de Google (~2-3%), pero es la
- * mejor alternativa gratuita.
+ * RESPALDO: si no hay token de Mapbox o Mapbox no responde, se usan varios
+ * servidores OSRM (réplicas de OpenStreetMap). La distancia de OSRM puede
+ * diferir ligeramente (~2-3%), pero es la mejor alternativa gratuita.
  *
  * Si TODOS los servicios fallan, se aplica 1,3× la línea recta como
  * aproximación realista de moto en ciudad — nunca línea recta pura.
@@ -22,18 +21,16 @@
 import { haversineKm } from './fees'
 import { fetchWithRetry } from './http'
 
-// Google Maps Distance Matrix API (requiere key en .env)
-const GOOGLE_DMX = 'https://maps.googleapis.com/maps/api/distancematrix/json'
-const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || ''
+// Mapbox Directions API (requiere token en .env)
+const MAPBOX_DIRECTIONS = 'https://api.mapbox.com/directions/v5/mapbox/driving'
+const MAPBOX_TOKEN = process.env.MAPBOX_ACCESS_TOKEN || ''
 
-// Múltiples servidores OSRM públicos (réplicas del motor de rutas de
-// OpenStreetMap) como respaldo si no hay key de Google o Google falla.
+// Múltiples servidores OSRM públicos como respaldo.
 const OSRM_SERVERS = [
   'https://router.project-osrm.org/route/v1/driving',
   'https://routing.openstreetmap.de/routed-car/route/v1/driving',
 ]
 
-const USER_AGENT = 'RepartosNOVI/1.0 (repartos.novi@gmail.com)'
 const CACHE_LIMIT = 300
 
 // Factor de desvío cuando TODO falla: 1,3 × la línea recta (moto en ciudad).
@@ -50,36 +47,37 @@ function pointKey(p: { lat: number; lng: number }): string {
 }
 
 /**
- * Distancia por Google Maps Distance Matrix API. Devuelve km o null si no
- * hay key o Google no responde. Solo se cachean los éxitos.
+ * Distancia por Mapbox Directions API. Devuelve km o null si no hay token o
+ * Mapbox no responde. Solo se cachean los éxitos.
  */
-async function googleDistanceKm(
+async function mapboxDistanceKm(
   from: { lat: number; lng: number },
   to: { lat: number; lng: number },
 ): Promise<number | null> {
-  if (!GOOGLE_KEY) return null
+  if (!MAPBOX_TOKEN) return null
 
   const key = `${pointKey(from)}|${pointKey(to)}`
   const cached = roadCache.get(key)
   if (cached !== undefined) return cached
 
   try {
-    const url = `${GOOGLE_DMX}?origins=${from.lat},${from.lng}&destinations=${to.lat},${to.lng}&mode=driving&units=metric&key=${GOOGLE_KEY}`
+    // Mapbox usa formato lng,lat (longitud primero)
+    const url = `${MAPBOX_DIRECTIONS}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false&alternatives=false&steps=false&annotations=distance&access_token=${MAPBOX_TOKEN}`
     const res = await fetchWithRetry(
       url,
       {
-        signal: AbortSignal.timeout(4000),
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(5000),
       },
-      { attempts: 2, retryDelayMs: 150 },
+      { attempts: 2, retryDelayMs: 200 },
     )
     if (res.ok) {
       const data = (await res.json()) as {
-        status?: string
-        rows?: { elements?: { status?: string; distance?: { value?: number } }[] }[]
+        code?: string
+        routes?: { distance?: number }[]
       }
-      const el = data.rows?.[0]?.elements?.[0]
-      const meters = el?.distance?.value
-      if (el?.status === 'OK' && Number.isFinite(meters) && meters > 0) {
+      const meters = data.routes?.[0]?.distance
+      if (data.code === 'Ok' && Number.isFinite(meters) && meters > 0) {
         const km = round2(meters / 1000)
         if (roadCache.size >= CACHE_LIMIT) {
           const oldest = roadCache.keys().next().value
@@ -90,13 +88,13 @@ async function googleDistanceKm(
       }
     }
   } catch {
-    // Google no respondió — probar OSRM
+    // Mapbox no respondió — probar OSRM
   }
   return null
 }
 
 /**
- * Distancia por carretera con OSRM (respaldo si no hay Google). Devuelve km
+ * Distancia por carretera con OSRM (respaldo si no hay Mapbox). Devuelve km
  * o null si ningún servidor responde.
  */
 async function osrmDistanceKm(
@@ -113,7 +111,7 @@ async function osrmDistanceKm(
       const res = await fetchWithRetry(
         url,
         {
-          headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+          headers: { 'User-Agent': 'RepartosNOVI/1.0 (repartos.novi@gmail.com)', Accept: 'application/json' },
           signal: AbortSignal.timeout(4000),
         },
         { attempts: 2, retryDelayMs: 150 },
@@ -151,8 +149,8 @@ export interface DeliveryDistance {
 /**
  * Distancia definitiva para tarificar un reparto.
  *
- * 1. Google Maps Distance Matrix API (exacto, si hay API key)
- * 2. OSRM (respaldo gratuito, ~2-3% de diferencia con Google)
+ * 1. Mapbox Directions API (motor principal, muy preciso)
+ * 2. OSRM (respaldo gratuito)
  * 3. 1,3× línea recta (solo si todo falla — caída de red)
  *
  * Es la ÚNICA función que deben usar tanto la previsualización en vivo como
@@ -165,9 +163,9 @@ export async function deliveryDistanceKm(
 ): Promise<DeliveryDistance> {
   const straight = round2(haversineKm(from, to))
 
-  // 1. Google Maps (exacto, como la app de Google)
-  const google = await googleDistanceKm(from, to)
-  if (google != null) return { km: google, method: 'road' }
+  // 1. Mapbox (motor principal)
+  const mapbox = await mapboxDistanceKm(from, to)
+  if (mapbox != null) return { km: mapbox, method: 'road' }
 
   // 2. OSRM (respaldo)
   const road = await osrmDistanceKm(from, to)
