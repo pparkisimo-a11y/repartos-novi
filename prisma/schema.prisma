@@ -44,6 +44,13 @@ model Restaurant {
   feeThresholdKm   Float             @default(2)
   feePerExtraKmEur Float             @default(0.35)
 
+  // Horario negociado: días activos (0=dom … 6=sáb, separados por comas) y
+  // franja horaria en formato "HH:MM". Si no se negocia, el local está siempre
+  // abierto (vacío = 24/7). Fuera de este horario el restaurante no puede pedir.
+  scheduleDays     String            @default("")
+  scheduleStart    String            @default("")
+  scheduleEnd      String            @default("")
+
   deliveries     Delivery[]
   convertedLeads Lead[]             @relation("ConvertedLeads")
   drivers        RestaurantDriver[]

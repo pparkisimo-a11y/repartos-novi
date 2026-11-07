@@ -71,6 +71,9 @@ export interface AdminRestaurant {
   feeBaseEur: number
   feeThresholdKm: number
   feePerExtraKmEur: number
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
 }
 
 export interface AdminDriver {
@@ -262,6 +265,14 @@ export const api = {
     request<{ restaurant: AdminRestaurant }>(`/api/admin/restaurants/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ action: 'update-fees', ...fees }),
+    }),
+  adminUpdateRestaurantSchedule: (
+    id: string,
+    schedule: { scheduleDays: string; scheduleStart: string; scheduleEnd: string },
+  ) =>
+    request<{ restaurant: AdminRestaurant }>(`/api/admin/restaurants/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'update-schedule', ...schedule }),
     }),
   adminDeleteRestaurant: (id: string) =>
     request<{ ok: boolean }>(`/api/admin/restaurants/${id}`, {

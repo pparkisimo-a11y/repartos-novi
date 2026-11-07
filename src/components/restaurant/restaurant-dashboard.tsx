@@ -49,6 +49,12 @@ import {
   formatDuration,
   relativeTime,
 } from '@/lib/format'
+import {
+  parseSchedule,
+  isRestaurantOpen,
+  scheduleLabel,
+} from '@/lib/schedule'
+import { useNow } from '@/hooks/use-now'
 
 type View = 'inicio' | 'historial'
 
@@ -194,6 +200,15 @@ export function RestaurantDashboard({
     { id: 'historial', label: 'Historial', icon: ClipboardList },
   ]
 
+  // Horario negociado del local: ¿está abierto ahora?
+  const now = useNow(30000) // refresca cada 30s para el estado abierto/cerrado
+  const schedule = parseSchedule(
+    user.scheduleDays ?? '',
+    user.scheduleStart ?? '',
+    user.scheduleEnd ?? '',
+  )
+  const isOpen = isRestaurantOpen(schedule, new Date(now))
+
   const header = (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -221,26 +236,52 @@ export function RestaurantDashboard({
     >
       {view === 'inicio' && (
         <div className="space-y-6">
+          {/* Horario negociado: avisa si está fuera de horas */}
+          {!isOpen && (
+            <Card className="border-amber-300 bg-amber-50">
+              <CardContent className="flex items-start gap-3 p-4 text-amber-800">
+                <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                <div className="text-sm">
+                  <p className="font-semibold">Fuera de horario</p>
+                  <p className="mt-0.5">
+                    Tu horario de reparto es <strong>{scheduleLabel(schedule)}</strong>.
+                    Vuelve a intentarlo dentro de ese horario para pedir repartidor.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {isOpen && schedule.days.length > 0 && (
+            <Card className="border-emerald-200 bg-emerald-50">
+              <CardContent className="flex items-center gap-3 p-3 text-emerald-700">
+                <Clock className="h-4 w-4 shrink-0" />
+                <p className="text-sm font-medium">
+                  Abierto · {scheduleLabel(schedule)}
+                </p>
+              </CardContent>
+            </Card>
+          )}
           {isLoading ? (
             <Card className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </Card>
           ) : actives.length === 0 ? (
-            <RequestCard onRequest={() => setRequestOpen(true)} />
+            <RequestCard onRequest={() => setRequestOpen(true)} disabled={!isOpen} closedLabel={!isOpen ? scheduleLabel(schedule) : undefined} />
           ) : (
             <>
               {/* Pedir otro reparto SIN scroll: la acción rápida vive arriba,
                   a un toque aunque haya muchos pedidos debajo. El borde
                   discontinuo comunica "añadir otro" sin robar protagonismo
-                  a los pedidos que esperan repartidor. */}
+                  a los pedidos que esperan repartidor. Fuera de horario se bloquea. */}
               <Button
                 size="lg"
                 variant="outline"
-                className="h-12 w-full border-2 border-dashed border-primary/50 bg-primary/5 px-8 text-base font-semibold text-primary hover:border-primary/70 hover:bg-primary/10"
+                disabled={!isOpen}
+                className="h-12 w-full border-2 border-dashed border-primary/50 bg-primary/5 px-8 text-base font-semibold text-primary hover:border-primary/70 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => setRequestOpen(true)}
               >
                 <Plus className="mr-2 h-5 w-5" />
-                Solicitar otro reparto
+                {isOpen ? 'Solicitar otro reparto' : 'Fuera de horario'}
               </Button>
 
               {/* Esperan repartidor: GRANDES como siempre — son los vivos */}
@@ -316,7 +357,15 @@ function ConnectionPill({
   )
 }
 
-function RequestCard({ onRequest }: { onRequest: () => void }) {
+function RequestCard({
+  onRequest,
+  disabled = false,
+  closedLabel,
+}: {
+  onRequest: () => void
+  disabled?: boolean
+  closedLabel?: string
+}) {
   return (
     <Card className="overflow-hidden p-0 shadow-sm">
       <div className="flex items-center justify-between bg-primary px-5 py-3.5 text-white">
@@ -324,25 +373,35 @@ function RequestCard({ onRequest }: { onRequest: () => void }) {
           <Bell className="h-4 w-4" />
           Solicitar repartidor
         </div>
-        <span className="text-sm text-white/80">Listo para enviar</span>
+        <span className="text-sm text-white/80">
+          {disabled ? 'Fuera de horario' : 'Listo para enviar'}
+        </span>
       </div>
       <CardContent className="flex flex-col items-center px-6 py-12 text-center sm:py-16">
         <div className="mb-5 inline-flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary">
           <Bell className="h-10 w-10" />
         </div>
         <h2 className="text-2xl font-bold">¿Pedido listo?</h2>
-        <p className="mt-2 max-w-md text-muted-foreground">
-          Pulsa el botón y tus repartidores recibirán la solicitud al instante.
-          Puedes anotar el nombre del cliente para que lo vean al recoger, y
-          solicitar varios repartos a la vez si tienes varios pedidos.
-        </p>
+        {disabled && closedLabel ? (
+          <p className="mt-2 max-w-md text-amber-600">
+            Tu horario de reparto es <strong>{closedLabel}</strong>. Fuera de
+            ese horario no puedes pedir repartidor.
+          </p>
+        ) : (
+          <p className="mt-2 max-w-md text-muted-foreground">
+            Pulsa el botón y tus repartidores recibirán la solicitud al instante.
+            Puedes anotar el nombre del cliente para que lo vean al recoger, y
+            solicitar varios repartos a la vez si tienes varios pedidos.
+          </p>
+        )}
         <Button
           size="lg"
+          disabled={disabled}
           className="mt-8 h-16 w-full max-w-sm text-lg font-semibold"
           onClick={onRequest}
         >
           <Bell className="mr-2 h-6 w-6" />
-          Solicitar repartidor
+          {disabled ? 'Fuera de horario' : 'Solicitar repartidor'}
         </Button>
         <p className="mt-4 text-xs text-muted-foreground">
           El repartidor verá tu ubicación en el mapa

@@ -9,6 +9,7 @@ import {
   isActiveStatus,
 } from '@/lib/delivery'
 import { getCommissionPct } from '@/lib/settings'
+import { parseSchedule, isRestaurantOpen, scheduleLabel } from '@/lib/schedule'
 
 export async function GET(req: Request) {
   const session = await getSessionFromRequest(req)
@@ -80,11 +81,25 @@ export async function POST(req: Request) {
       address: true,
       lat: true,
       lng: true,
+      scheduleDays: true,
+      scheduleStart: true,
+      scheduleEnd: true,
       drivers: { select: { driverId: true, driver: { select: { id: true, name: true } } } },
     },
   })
   if (!restaurant) {
     return NextResponse.json({ error: 'Restaurante no encontrado' }, { status: 404 })
+  }
+
+  // Horario negociado: fuera de días/horas no se puede pedir reparto
+  const schedule = parseSchedule(restaurant.scheduleDays, restaurant.scheduleStart, restaurant.scheduleEnd)
+  if (!isRestaurantOpen(schedule)) {
+    return NextResponse.json(
+      {
+        error: `Tu horario de reparto es ${scheduleLabel(schedule)}. Vuelve a intentarlo dentro de ese horario.`,
+      },
+      { status: 403 },
+    )
   }
 
   const assignedDrivers = restaurant.drivers.map((a) => a.driver)

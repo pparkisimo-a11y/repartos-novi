@@ -8,6 +8,9 @@ export interface RestaurantUser {
   lat: number
   lng: number
   role: 'restaurant'
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
 }
 
 export interface DriverUser {

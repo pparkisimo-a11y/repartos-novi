@@ -44,6 +44,8 @@ import { formatDateTime } from '@/lib/format'
 import { feeExplanation, type FeeConfig } from '@/lib/fees'
 import { AddressAutocomplete } from '@/components/driver/address-autocomplete'
 import type { AddressSuggestion } from '@/lib/types'
+import { parseSchedule, scheduleLabel, DAY_LABELS, DAY_SHORT } from '@/lib/schedule'
+import { Clock } from 'lucide-react'
 
 export function ManageRestaurants() {
   const qc = useQueryClient()
@@ -51,6 +53,7 @@ export function ManageRestaurants() {
   const [resetTarget, setResetTarget] = useState<AdminRestaurant | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRestaurant | null>(null)
   const [feeTarget, setFeeTarget] = useState<AdminRestaurant | null>(null)
+  const [scheduleTarget, setScheduleTarget] = useState<AdminRestaurant | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'restaurants'],
@@ -266,6 +269,27 @@ export function ManageRestaurants() {
                   </p>
                 </div>
 
+                {/* Horario negociado del local */}
+                <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5" />
+                      Horario
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setScheduleTarget(r)}
+                    >
+                      Editar horario
+                    </Button>
+                  </div>
+                  <p className="mt-1.5 text-sm text-foreground">
+                    {scheduleLabel(parseSchedule(r.scheduleDays, r.scheduleStart, r.scheduleEnd))}
+                  </p>
+                </div>
+
                 <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                   <span>Dado de alta {formatDateTime(r.createdAt)}</span>
                 </div>
@@ -325,6 +349,14 @@ export function ManageRestaurants() {
         onDone={() => {
           invalidate()
           setFeeTarget(null)
+        }}
+      />
+      <EditScheduleDialog
+        target={scheduleTarget}
+        onOpenChange={(o) => !o && setScheduleTarget(null)}
+        onDone={() => {
+          invalidate()
+          setScheduleTarget(null)
         }}
       />
     </div>
@@ -885,4 +917,166 @@ function parseFee(base: string, threshold: string, extra: string): FeeConfig | n
   if (![b, t, e].every((n) => Number.isFinite(n) && n >= 0)) return null
   if (b > 100 || e > 50 || t > 100) return null
   return { baseEur: b, thresholdKm: t, perExtraKmEur: e }
+}
+
+/**
+ * Editor del horario negociado del local. Selecciona los días activos con
+ * botones (Lun–Dom) y la franja horaria con dos inputs de tipo time.
+ * Vacío (sin días ni horas) = 24/7 sin restricción.
+ */
+function EditScheduleDialog({
+  target,
+  onOpenChange,
+  onDone,
+}: {
+  target: AdminRestaurant | null
+  onOpenChange: (o: boolean) => void
+  onDone: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [days, setDays] = useState<number[]>([])
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+
+  useEffect(() => {
+    if (target) {
+      const s = parseSchedule(target.scheduleDays, target.scheduleStart, target.scheduleEnd)
+      setDays(s.days)
+      setStart(s.start)
+      setEnd(s.end)
+    }
+  }, [target])
+
+  function toggleDay(d: number) {
+    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+  }
+
+  const is247 = days.length === 0 && !start && !end
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!target) return
+    setLoading(true)
+    try {
+      const scheduleDays = days.slice().sort().join(',')
+      await api.adminUpdateRestaurantSchedule(target.id, {
+        scheduleDays,
+        scheduleStart: start,
+        scheduleEnd: end,
+      })
+      toast.success('Horario actualizado', {
+        description: scheduleLabel(parseSchedule(scheduleDays, start, end)),
+      })
+      onDone()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            Horario de {target?.name ?? ''}
+          </DialogTitle>
+          <DialogDescription>
+            Días y franja horaria en los que este local puede pedir reparto.
+            Fuera de este horario, el botón de solicitar repartidor se bloquea.
+            Si lo dejas vacío, el local está abierto 24/7.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          {/* Días activos */}
+          <div className="space-y-2">
+            <Label>Días activos</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                const selected = days.includes(d)
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleDay(d)}
+                    aria-pressed={selected}
+                    className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2.5 text-sm font-medium transition-colors active:scale-95 ${
+                      selected
+                        ? 'border-primary bg-primary text-white'
+                        : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                    }`}
+                  >
+                    {DAY_SHORT[d]}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {days.length === 0
+                ? 'Sin selección = todos los días (24/7 si tampoco hay horario).'
+                : `${days.length} día${days.length === 1 ? '' : 's'} seleccionado${days.length === 1 ? '' : 's'}.`}
+            </p>
+          </div>
+
+          {/* Franja horaria */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="sch-start">Desde</Label>
+              <Input
+                id="sch-start"
+                type="time"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                  disabled={days.length === 0 && !end}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sch-end">Hasta</Label>
+              <Input
+                id="sch-end"
+                type="time"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                disabled={days.length === 0 && !start}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Si la hora de fin es menor que la de inicio, la franja cruza
+            medianoche (ej. 22:00–05:00 = madrugada incluida).
+          </p>
+
+          {/* Previsualización */}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <p className="font-semibold">Así quedará:</p>
+            <p className="mt-0.5">
+              {scheduleLabel(parseSchedule(days.slice().sort().join(','), start, end))}
+            </p>
+          </div>
+
+          {is247 && (
+            <p className="text-xs text-amber-600">
+              ⚠ Sin horario: el local podrá pedir reparto a cualquier hora.
+            </p>
+          )}
+        </form>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={loading || !target}
+            className="bg-primary text-white hover:bg-primary/90"
+          >
+            {loading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Guardar horario
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }

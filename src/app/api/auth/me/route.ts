@@ -39,7 +39,17 @@ export async function GET(req: Request) {
   // Restaurant: refresh name/username from DB
   const restaurant = await db.restaurant.findUnique({
     where: { id: session.id },
-    select: { id: true, name: true, username: true, address: true, lat: true, lng: true },
+    select: {
+      id: true,
+      name: true,
+      username: true,
+      address: true,
+      lat: true,
+      lng: true,
+      scheduleDays: true,
+      scheduleStart: true,
+      scheduleEnd: true,
+    },
   })
 
   if (!restaurant) {

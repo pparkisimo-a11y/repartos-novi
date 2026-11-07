@@ -25,6 +25,9 @@ export interface AdminRestaurantOut {
   feeBaseEur: number
   feeThresholdKm: number
   feePerExtraKmEur: number
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
 }
 
 function normalize(input: Partial<AdminRestaurantInput>): {
@@ -94,6 +97,9 @@ export async function listRestaurants(): Promise<AdminRestaurantOut[]> {
     feeBaseEur: r.feeBaseEur,
     feeThresholdKm: r.feeThresholdKm,
     feePerExtraKmEur: r.feePerExtraKmEur,
+    scheduleDays: r.scheduleDays,
+    scheduleStart: r.scheduleStart,
+    scheduleEnd: r.scheduleEnd,
   }))
 }
 
@@ -144,6 +150,9 @@ export async function createRestaurant(
       feeBaseEur: r.feeBaseEur,
       feeThresholdKm: r.feeThresholdKm,
       feePerExtraKmEur: r.feePerExtraKmEur,
+    scheduleDays: r.scheduleDays,
+    scheduleStart: r.scheduleStart,
+    scheduleEnd: r.scheduleEnd,
     },
   }
 }
@@ -192,6 +201,9 @@ export async function updateRestaurantAssignment(
       feeBaseEur: r.feeBaseEur,
       feeThresholdKm: r.feeThresholdKm,
       feePerExtraKmEur: r.feePerExtraKmEur,
+    scheduleDays: r.scheduleDays,
+    scheduleStart: r.scheduleStart,
+    scheduleEnd: r.scheduleEnd,
     },
   }
 }
@@ -258,6 +270,66 @@ export async function updateRestaurantFees(
       feeBaseEur: r.feeBaseEur,
       feeThresholdKm: r.feeThresholdKm,
       feePerExtraKmEur: r.feePerExtraKmEur,
+    scheduleDays: r.scheduleDays,
+    scheduleStart: r.scheduleStart,
+    scheduleEnd: r.scheduleEnd,
+    },
+  }
+}
+
+export interface ScheduleInput {
+  scheduleDays: string
+  scheduleStart: string
+  scheduleEnd: string
+}
+
+/** Guarda el horario negociado de un local. Vacío = 24/7. */
+export async function updateRestaurantSchedule(
+  id: string,
+  input: Partial<ScheduleInput>,
+): Promise<{ ok: true; restaurant: AdminRestaurantOut } | { ok: false; error: string; status: number }> {
+  const existing = await db.restaurant.findUnique({ where: { id } })
+  if (!existing) return { ok: false, error: 'Restaurante no encontrado', status: 404 }
+
+  // Normaliza días: "1, 2 ,3" → "1,2,3"; valida 0-6
+  const days = String(input.scheduleDays ?? '')
+    .split(',')
+    .map((d) => d.trim())
+    .filter((d) => d !== '')
+    .map((d) => Number(d))
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+  const scheduleDays = [...new Set(days)].sort().join(',')
+
+  const scheduleStart = String(input.scheduleStart || '').trim().slice(0, 5)
+  const scheduleEnd = String(input.scheduleEnd || '').trim().slice(0, 5)
+
+  const r = await db.restaurant.update({
+    where: { id },
+    data: { scheduleDays, scheduleStart, scheduleEnd },
+    include: {
+      _count: { select: { deliveries: true } },
+      drivers: { select: { driverId: true, driver: { select: { id: true, name: true } } } },
+    },
+  })
+  return {
+    ok: true,
+    restaurant: {
+      id: r.id,
+      name: r.name,
+      username: r.username,
+      address: r.address,
+      lat: r.lat,
+      lng: r.lng,
+      createdAt: r.createdAt.toISOString(),
+      services: r._count.deliveries,
+      assignedDriverIds: r.drivers.map((a) => a.driverId),
+      assignedDriverNames: r.drivers.map((a) => a.driver.name),
+      feeBaseEur: r.feeBaseEur,
+      feeThresholdKm: r.feeThresholdKm,
+      feePerExtraKmEur: r.feePerExtraKmEur,
+      scheduleDays: r.scheduleDays,
+      scheduleStart: r.scheduleStart,
+      scheduleEnd: r.scheduleEnd,
     },
   }
 }
