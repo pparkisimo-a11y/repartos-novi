@@ -54,7 +54,7 @@ import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
 import { formatTime } from '@/lib/format'
 import { PushBell } from '@/components/pwa/push-bell'
-import { feeForDistanceKm, haversineKm, formatEur, formatKm, feeExplanation } from '@/lib/fees'
+import { feeForDistanceKm, haversineKm, formatEur, formatKm } from '@/lib/fees'
 
 type View = 'pedidos' | 'historial' | 'estadisticas'
 
@@ -1247,9 +1247,8 @@ function PickupDialog({
           <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-3">
             <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
-              <strong className="text-foreground">Cómo se calcula la tarifa:</strong>{' '}
-              {feeExplanation(feeConfig)}. La distancia se mide por carretera desde el
-              local hasta la dirección elegida.
+              La tarifa se calcula con la distancia por carretera desde el local
+              hasta la dirección elegida. La que ves arriba es lo que cobras tú.
             </p>
           </div>
         </div>
