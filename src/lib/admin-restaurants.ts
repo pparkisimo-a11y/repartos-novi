@@ -8,7 +8,7 @@ export interface AdminRestaurantInput {
   address: string
   lat: number
   lng: number
-  assignedDriverId?: string | null
+  assignedDriverIds?: string[]
 }
 
 export interface AdminRestaurantOut {
@@ -20,8 +20,8 @@ export interface AdminRestaurantOut {
   lng: number
   createdAt: string
   services: number
-  assignedDriverId: string | null
-  assignedDriverName: string | null
+  assignedDriverIds: string[]
+  assignedDriverNames: string[]
 }
 
 function normalize(input: Partial<AdminRestaurantInput>): {
@@ -35,6 +35,9 @@ function normalize(input: Partial<AdminRestaurantInput>): {
   const address = String(input.address || '').trim()
   const lat = Number(input.lat)
   const lng = Number(input.lng)
+  const assignedDriverIds = Array.isArray(input.assignedDriverIds)
+    ? input.assignedDriverIds.map((id) => String(id)).filter(Boolean)
+    : []
 
   if (!name || !username || !password || !address) {
     return { ok: false, error: 'Faltan campos obligatorios' }
@@ -43,22 +46,27 @@ function normalize(input: Partial<AdminRestaurantInput>): {
     return { ok: false, error: 'La contraseña debe tener al menos 4 caracteres' }
   }
   if (!/^[a-z0-9_.-]+$/.test(username)) {
-    return { ok: false, error: 'El usuario solo puede tener letras minúsculas, números, ".", "_" y "-"' }
+    return { ok: false, error: 'El usuario solo puede tener letras minúsculas, números, ".", "_" y "-"', }
   }
   if (Number.isNaN(lat) || Number.isNaN(lng)) {
     return { ok: false, error: 'Ubicación no válida' }
   }
-  return { ok: true, data: { name, username, password, address, lat, lng, assignedDriverId: input.assignedDriverId || null } }
+  return { ok: true, data: { name, username, password, address, lat, lng, assignedDriverIds } }
 }
 
-/** Resolve an optional driver id into a valid DB driver (or null). */
-async function resolveDriver(
-  assignedDriverId: string | null | undefined,
-): Promise<{ ok: true; driverId: string | null; driverName: string | null } | { ok: false; error: string }> {
-  if (!assignedDriverId) return { ok: true, driverId: null, driverName: null }
-  const driver = await db.driver.findUnique({ where: { id: assignedDriverId }, select: { id: true, name: true } })
-  if (!driver) return { ok: false, error: 'Repartidor no encontrado' }
-  return { ok: true, driverId: driver.id, driverName: driver.name }
+/** Resolve a list of driver ids into valid DB drivers (all must exist). */
+async function resolveDrivers(
+  driverIds: string[],
+): Promise<{ ok: true; drivers: { id: string; name: string }[] } | { ok: false; error: string }> {
+  if (driverIds.length === 0) return { ok: true, drivers: [] }
+  const drivers = await db.driver.findMany({
+    where: { id: { in: driverIds } },
+    select: { id: true, name: true },
+  })
+  if (drivers.length !== driverIds.length) {
+    return { ok: false, error: 'Repartidor no encontrado' }
+  }
+  return { ok: true, drivers }
 }
 
 export async function listRestaurants(): Promise<AdminRestaurantOut[]> {
@@ -66,7 +74,7 @@ export async function listRestaurants(): Promise<AdminRestaurantOut[]> {
     orderBy: { createdAt: 'desc' },
     include: {
       _count: { select: { deliveries: true } },
-      assignedDriver: { select: { id: true, name: true } },
+      drivers: { select: { driverId: true, driver: { select: { id: true, name: true } } } },
     },
   })
   return rows.map((r) => ({
@@ -78,8 +86,8 @@ export async function listRestaurants(): Promise<AdminRestaurantOut[]> {
     lng: r.lng,
     createdAt: r.createdAt.toISOString(),
     services: r._count.deliveries,
-    assignedDriverId: r.assignedDriverId,
-    assignedDriverName: r.assignedDriver?.name ?? null,
+    assignedDriverIds: r.drivers.map((a) => a.driverId),
+    assignedDriverNames: r.drivers.map((a) => a.driver.name),
   }))
 }
 
@@ -98,8 +106,8 @@ export async function createRestaurant(
     return { ok: false, error: 'Ese nombre de usuario ya existe', status: 409 }
   }
 
-  const driver = await resolveDriver(norm.data.assignedDriverId)
-  if (!driver.ok) return { ok: false, error: driver.error, status: 400 }
+  const drivers = await resolveDrivers(norm.data.assignedDriverIds || [])
+  if (!drivers.ok) return { ok: false, error: drivers.error, status: 400 }
 
   const r = await db.restaurant.create({
     data: {
@@ -109,7 +117,9 @@ export async function createRestaurant(
       address: norm.data.address,
       lat: norm.data.lat,
       lng: norm.data.lng,
-      assignedDriverId: driver.driverId,
+      drivers: {
+        create: drivers.drivers.map((d) => ({ driverId: d.id })),
+      },
     },
   })
   return {
@@ -123,29 +133,38 @@ export async function createRestaurant(
       lng: r.lng,
       createdAt: r.createdAt.toISOString(),
       services: 0,
-      assignedDriverId: driver.driverId,
-      assignedDriverName: driver.driverName,
+      assignedDriverIds: drivers.drivers.map((d) => d.id),
+      assignedDriverNames: drivers.drivers.map((d) => d.name),
     },
   }
 }
 
-/** Assign (or unassign with null) a restaurant to a driver. */
+/**
+ * Sustituye el conjunto de repartidores asignados a un restaurante.
+ * Un local puede tener VARIOS repartidores: sus peticiones llegan a todos
+ * y el primero que acepta se queda el pedido.
+ */
 export async function updateRestaurantAssignment(
   id: string,
-  assignedDriverId: string | null,
+  driverIds: string[],
 ): Promise<{ ok: true; restaurant: AdminRestaurantOut } | { ok: false; error: string; status: number }> {
   const existing = await db.restaurant.findUnique({ where: { id } })
   if (!existing) return { ok: false, error: 'Restaurante no encontrado', status: 404 }
 
-  const driver = await resolveDriver(assignedDriverId)
-  if (!driver.ok) return { ok: false, error: driver.error, status: 400 }
+  const drivers = await resolveDrivers(driverIds)
+  if (!drivers.ok) return { ok: false, error: drivers.error, status: 400 }
 
   const r = await db.restaurant.update({
     where: { id },
-    data: { assignedDriverId: driver.driverId },
+    data: {
+      drivers: {
+        deleteMany: {},
+        create: drivers.drivers.map((d) => ({ driverId: d.id })),
+      },
+    },
     include: {
       _count: { select: { deliveries: true } },
-      assignedDriver: { select: { id: true, name: true } },
+      drivers: { select: { driverId: true, driver: { select: { id: true, name: true } } } },
     },
   })
   return {
@@ -159,8 +178,8 @@ export async function updateRestaurantAssignment(
       lng: r.lng,
       createdAt: r.createdAt.toISOString(),
       services: r._count.deliveries,
-      assignedDriverId: r.assignedDriverId,
-      assignedDriverName: r.assignedDriver?.name ?? null,
+      assignedDriverIds: r.drivers.map((a) => a.driverId),
+      assignedDriverNames: r.drivers.map((a) => a.driver.name),
     },
   }
 }
@@ -183,8 +202,9 @@ export async function deleteRestaurant(
 ): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
   const existing = await db.restaurant.findUnique({ where: { id } })
   if (!existing) return { ok: false, error: 'Restaurante no encontrado', status: 404 }
-  // Delete deliveries first (no cascade in SQLite Prisma without relation onDelete)
+  // Borrar primero pedidos y suscripciones push del local (sin cascadas en el esquema)
   await db.delivery.deleteMany({ where: { restaurantId: id } })
-  await db.restaurant.delete({ where: { id } })
+  await db.pushSubscription.deleteMany({ where: { role: 'restaurant', userId: id } })
+  await db.restaurant.delete({ where: { id } }) // las asignaciones (RestaurantDriver) van en cascada
   return { ok: true }
 }

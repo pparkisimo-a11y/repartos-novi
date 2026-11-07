@@ -134,7 +134,7 @@ export async function convertLead(
     address?: unknown
     lat?: unknown
     lng?: unknown
-    assignedDriverId?: unknown
+    assignedDriverIds?: unknown
   },
 ): Promise<
   | { ok: true; lead: LeadOut; restaurant: { id: string; name: string; username: string } }
@@ -152,7 +152,13 @@ export async function convertLead(
   const address = String(input.address ?? '').trim()
   const lat = Number(input.lat)
   const lng = Number(input.lng)
-  const assignedDriverId = String(input.assignedDriverId || '').trim() || null
+  // Un local puede tener VARIOS repartidores asignados
+  const assignedDriverIds = (Array.isArray(input.assignedDriverIds)
+    ? input.assignedDriverIds
+    : input.assignedDriverIds
+      ? [input.assignedDriverIds]
+      : []
+  ).map((v) => String(v)).filter(Boolean)
 
   if (!name || !username || !password || !address) {
     return { ok: false, error: 'Completa todos los campos del restaurante', status: 400 }
@@ -176,10 +182,13 @@ export async function convertLead(
     return { ok: false, error: 'Ese nombre de usuario ya existe', status: 409 }
   }
 
-  let assignedDriver: { id: string } | null = null
-  if (assignedDriverId) {
-    assignedDriver = await db.driver.findUnique({ where: { id: assignedDriverId }, select: { id: true } })
-    if (!assignedDriver) {
+  let assignedDrivers: { id: string }[] = []
+  if (assignedDriverIds.length > 0) {
+    assignedDrivers = await db.driver.findMany({
+      where: { id: { in: assignedDriverIds } },
+      select: { id: true },
+    })
+    if (assignedDrivers.length !== assignedDriverIds.length) {
       return { ok: false, error: 'Repartidor no encontrado', status: 400 }
     }
   }
@@ -192,7 +201,9 @@ export async function convertLead(
       address,
       lat,
       lng,
-      assignedDriverId: assignedDriver?.id ?? null,
+      drivers: {
+        create: assignedDrivers.map((d) => ({ driverId: d.id })),
+      },
     },
   })
 

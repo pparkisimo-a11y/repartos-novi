@@ -42,12 +42,21 @@ export interface DeliveryDTO {
   deliveredAt: string | null
   rejectedAt: string | null
   totalMs: number | null
-  /** Driver this delivery is routed to (from the restaurant's assignment). */
-  assignedDriverId: string | null
-  assignedDriverName: string | null
+  /** Repartidores asignados al restaurante: a quiénes llega la petición. */
+  assignedDriverIds: string[]
+  assignedDriverNames: string[]
+  /** Repartidor que aceptó el reparto (null hasta que alguien lo tome). */
+  driverId: string | null
+  driverName: string | null
+  /** Nombre/anotación del pedido (opcional, la pone el restaurante al solicitar). */
+  customerName: string | null
+  /** Datos de la entrega, rellenados por el repartidor al recoger. */
+  dropoffAddress: string | null
+  distanceKm: number | null
+  fee: number | null
 }
 
-/** Shape returned by Prisma when including the delivery's restaurant (+driver). */
+/** Shape devuelto por Prisma al incluir restaurante (+repartores) y repartidor. */
 interface DeliveryWithRestaurant {
   id: string
   status: string
@@ -56,26 +65,33 @@ interface DeliveryWithRestaurant {
   pickedUpAt: Date | null
   deliveredAt: Date | null
   rejectedAt: Date | null
+  customerName: string | null
+  driverId: string | null
+  dropoffAddress: string | null
+  distanceKm: number | null
+  fee: number | null
   restaurantId: string
   restaurant: {
     name: string
     address: string
     lat: number
     lng: number
-    assignedDriverId?: string | null
-    assignedDriver?: { id: string; name: string } | null
+    drivers?: Array<{ driverId: string; driver?: { name: string } | null }>
   }
+  driver?: { id: string; name: string } | null
 }
 
 /**
- * Central serializer shared by every deliveries API route. `includeLocation`
- * hides the exact coordinates from restaurants (they already know them).
+ * Serializador central compartido por todas las rutas de deliveries.
+ * `includeLocation` oculta las coordenadas exactas a los restaurantes
+ * (ya las conocen).
  */
 export function serializeDelivery(d: DeliveryWithRestaurant, includeLocation = true): DeliveryDTO {
   const totalMs =
     d.requestedAt && d.deliveredAt
       ? new Date(d.deliveredAt).getTime() - new Date(d.requestedAt).getTime()
       : null
+  const assignments = d.restaurant.drivers ?? []
   return {
     id: d.id,
     status: d.status as DeliveryStatus,
@@ -90,12 +106,18 @@ export function serializeDelivery(d: DeliveryWithRestaurant, includeLocation = t
     deliveredAt: d.deliveredAt?.toISOString() ?? null,
     rejectedAt: d.rejectedAt?.toISOString() ?? null,
     totalMs,
-    assignedDriverId: d.restaurant.assignedDriver?.id ?? d.restaurant.assignedDriverId ?? null,
-    assignedDriverName: d.restaurant.assignedDriver?.name ?? null,
+    assignedDriverIds: assignments.map((a) => a.driverId),
+    assignedDriverNames: assignments.map((a) => a.driver?.name ?? '—'),
+    driverId: d.driver?.id ?? d.driverId ?? null,
+    driverName: d.driver?.name ?? null,
+    customerName: d.customerName ?? null,
+    dropoffAddress: d.dropoffAddress ?? null,
+    distanceKm: d.distanceKm ?? null,
+    fee: d.fee ?? null,
   }
 }
 
-/** Prisma `include` that provides everything `serializeDelivery` needs. */
+/** Prisma `include` que proporciona todo lo que `serializeDelivery` necesita. */
 export const DELIVERY_RESTAURANT_INCLUDE = {
   restaurant: {
     select: {
@@ -103,7 +125,8 @@ export const DELIVERY_RESTAURANT_INCLUDE = {
       address: true,
       lat: true,
       lng: true,
-      assignedDriver: { select: { id: true, name: true } },
+      drivers: { select: { driverId: true, driver: { select: { name: true } } } },
     },
   },
+  driver: { select: { id: true, name: true } },
 } as const

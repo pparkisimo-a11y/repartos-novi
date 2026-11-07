@@ -9,6 +9,7 @@ import { api } from '@/lib/api-client'
 import { StatusBadge } from '@/components/status-badge'
 import { ScopeToggle, type Scope } from './scope-toggle'
 import { formatTime, formatDateTime, formatDuration } from '@/lib/format'
+import { formatEur, formatKm } from '@/lib/fees'
 
 /**
  * Historial de repartos.
@@ -85,11 +86,12 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
                     <th className="px-5 py-3 font-semibold">Pedido</th>
                     <th className="px-5 py-3 font-semibold">Restaurante</th>
                     {scope === 'all' && <th className="px-5 py-3 font-semibold">Repartidor</th>}
+                    <th className="px-5 py-3 font-semibold">Cliente</th>
                     <th className="px-5 py-3 font-semibold">Solicitado</th>
-                    <th className="px-5 py-3 font-semibold">Aceptado</th>
-                    <th className="px-5 py-3 font-semibold">Recogido</th>
                     <th className="px-5 py-3 font-semibold">Entregado</th>
                     <th className="px-5 py-3 font-semibold">Tiempo total</th>
+                    <th className="px-5 py-3 font-semibold">Distancia</th>
+                    <th className="px-5 py-3 font-semibold">Tarifa</th>
                     <th className="px-5 py-3 font-semibold">Estado</th>
                   </tr>
                 </thead>
@@ -105,14 +107,19 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
                       <td className="px-5 py-3 font-medium">{d.restaurantName}</td>
                       {scope === 'all' && (
                         <td className="px-5 py-3 text-muted-foreground">
-                          {d.assignedDriverName || '—'}
+                          {d.driverName || '—'}
                         </td>
                       )}
+                      <td className="max-w-[10rem] truncate px-5 py-3 text-muted-foreground">
+                        {d.customerName || '—'}
+                      </td>
                       <td className="px-5 py-3 text-muted-foreground">{formatDateTime(d.requestedAt)}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.acceptedAt)}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.pickedUpAt)}</td>
                       <td className="px-5 py-3 text-muted-foreground">{formatTime(d.deliveredAt)}</td>
                       <td className="px-5 py-3 font-mono font-semibold">{formatDuration(d.totalMs)}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{formatKm(d.distanceKm)}</td>
+                      <td className="px-5 py-3 font-semibold tabular-nums text-emerald-600">
+                        {formatEur(d.fee)}
+                      </td>
                       <td className="px-5 py-3"><StatusBadge status={d.status} showDot={false} /></td>
                     </tr>
                   ))}
@@ -136,16 +143,27 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
                 </div>
                 {scope === 'all' && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Repartidor: {d.assignedDriverName || '—'}
+                    Repartidor: {d.driverName || '—'}
                   </p>
                 )}
                 <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>Solicitado: {formatDateTime(d.requestedAt)}</span>
-                  <span>Aceptado: {formatTime(d.acceptedAt)}</span>
-                  <span>Recogido: {formatTime(d.pickedUpAt)}</span>
                   <span>Entregado: {formatTime(d.deliveredAt)}</span>
+                  {d.customerName && (
+                    <span className="col-span-2">Cliente: {d.customerName}</span>
+                  )}
+                  {d.dropoffAddress && (
+                    <span className="col-span-2 truncate">
+                      Entrega en: {d.dropoffAddress}
+                    </span>
+                  )}
                   <span className="col-span-2 font-mono font-semibold text-foreground">
                     Tiempo total: {formatDuration(d.totalMs)}
+                    {d.fee != null && (
+                      <span className="ml-2 font-sans text-emerald-600">
+                        · Tarifa {formatEur(d.fee)}
+                      </span>
+                    )}
                   </span>
                 </div>
               </div>

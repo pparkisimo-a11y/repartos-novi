@@ -3,12 +3,18 @@ import { db } from '@/lib/db'
 import { getSessionFromRequest } from '@/lib/session'
 import { realtimeEmit } from '@/lib/realtime'
 import { sendPush } from '@/lib/push'
+import { geocodeAddress } from '@/lib/geocode'
+import { haversineKm, feeForDistanceKm } from '@/lib/fees'
 import { serializeDelivery, DELIVERY_RESTAURANT_INCLUDE, type DeliveryStatus } from '@/lib/delivery'
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   PENDING: ['ACCEPTED', 'REJECTED', 'CANCELLED'],
   ACCEPTED: ['PICKED_UP', 'CANCELLED'],
   PICKED_UP: ['DELIVERED'],
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 export async function PATCH(
@@ -40,38 +46,132 @@ export async function PATCH(
     )
   }
 
-  const assignedDriverId = delivery.restaurant.assignedDriver?.id ?? null
+  const assignedDriverIds = delivery.restaurant.drivers?.map((a) => a.driverId) ?? []
+  // Fallback: si el local no tiene repartidores asignados, cualquier
+  // repartidor puede tomar la petición (que nunca quede huérfana).
+  const isAssigned = assignedDriverIds.includes(session.id) || assignedDriverIds.length === 0
+  const isAcceptor = delivery.driverId === session.id
 
-  // Permission checks
-  if (nextStatus === 'CANCELLED') {
-    // Only the owning restaurant (or the assigned driver for accepted) can cancel
+  const now = new Date()
+
+  // ---------- ACEPTAR: el primero que pulsa se lo lleva ----------
+  if (nextStatus === 'ACCEPTED') {
+    if (session.role !== 'driver') {
+      return NextResponse.json({ error: 'Solo el repartidor puede aceptar' }, { status: 403 })
+    }
+    if (!isAssigned) {
+      return NextResponse.json(
+        { error: 'Este reparto pertenece a otros repartidores' },
+        { status: 403 },
+      )
+    }
+    // Actualización condicional: solo gana si sigue PENDING. Si otro
+    // repartidor la aceptó antes, count === 0 y devolvemos 409.
+    const won = await db.delivery.updateMany({
+      where: { id, status: 'PENDING' },
+      data: { status: 'ACCEPTED', acceptedAt: now, driverId: session.id },
+    })
+    if (won.count === 0) {
+      return NextResponse.json(
+        { error: 'Otro repartidor ya ha aceptado este pedido' },
+        { status: 409 },
+      )
+    }
+  } else if (nextStatus === 'CANCELLED') {
+    // Only the owning restaurant (or the accepting driver) can cancel
     if (session.role !== 'restaurant' || session.id !== delivery.restaurantId) {
-      const isAssignedDriver = session.role === 'driver' && session.id === assignedDriverId
-      if (!(isAssignedDriver && delivery.status === 'ACCEPTED')) {
+      if (!(session.role === 'driver' && isAcceptor && delivery.status === 'ACCEPTED')) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
       }
     }
   } else {
-    // ACCEPTED / REJECTED / PICKED_UP / DELIVERED -> driver only, and only the
-    // driver assigned to this restaurant (fallback: any driver if unassigned,
-    // so a request never gets stuck without an owner).
+    // REJECTED / PICKED_UP / DELIVERED -> driver only
     if (session.role !== 'driver') {
       return NextResponse.json({ error: 'Solo el repartidor puede cambiar este estado' }, { status: 403 })
     }
-    if (assignedDriverId && session.id !== assignedDriverId) {
-      return NextResponse.json(
-        { error: 'Este reparto pertenece a otro repartidor' },
-        { status: 403 },
-      )
+    if (nextStatus === 'REJECTED') {
+      if (!isAssigned) {
+        return NextResponse.json(
+          { error: 'Este reparto pertenece a otros repartidores' },
+          { status: 403 },
+        )
+      }
+    } else {
+      // PICKED_UP / DELIVERED: solo el repartidor que aceptó el pedido
+      if (!isAcceptor) {
+        return NextResponse.json(
+          { error: 'Solo el repartidor que aceptó este pedido puede actualizarlo' },
+          { status: 403 },
+        )
+      }
     }
   }
 
-  const now = new Date()
+  // ---------- Datos de la recogida (nombre + dirección → tarifa) ----------
   const data: Record<string, unknown> = { status: nextStatus }
   if (nextStatus === 'ACCEPTED') data.acceptedAt = now
   if (nextStatus === 'REJECTED') data.rejectedAt = now
-  if (nextStatus === 'PICKED_UP') data.pickedUpAt = now
   if (nextStatus === 'DELIVERED') data.deliveredAt = now
+
+  if (nextStatus === 'PICKED_UP') {
+    data.pickedUpAt = now
+
+    // Nombre del cliente/anotación (opcional, puede venir del restaurante)
+    if (body.customerName !== undefined) {
+      data.customerName = String(body.customerName || '').trim().slice(0, 60) || null
+    }
+
+    // Dirección de entrega
+    const dropoffAddress = String(body.dropoffAddress || '').trim().slice(0, 200) || null
+    data.dropoffAddress = dropoffAddress
+
+    // Distancia: prioridad → km manuales > coordenadas del cliente > geocodificar
+    let distanceKm: number | null = null
+    let dropoffLat: number | null = null
+    let dropoffLng: number | null = null
+
+    const manualKm = Number(body.distanceKm)
+    const lat = Number(body.dropoffLat)
+    const lng = Number(body.dropoffLng)
+
+    if (Number.isFinite(manualKm) && manualKm > 0 && manualKm <= 100) {
+      distanceKm = round2(manualKm)
+    } else if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+      dropoffLat = lat
+      dropoffLng = lng
+      distanceKm = round2(
+        haversineKm(
+          { lat: delivery.restaurant.lat, lng: delivery.restaurant.lng },
+          { lat, lng },
+        ),
+      )
+    } else if (dropoffAddress) {
+      // Geocodificación en el servidor, sesgada al entorno del restaurante
+      const geo = await geocodeAddress(dropoffAddress, {
+        lat: delivery.restaurant.lat,
+        lng: delivery.restaurant.lng,
+      })
+      if (geo) {
+        dropoffLat = geo.lat
+        dropoffLng = geo.lng
+        distanceKm = round2(
+          haversineKm(
+            { lat: delivery.restaurant.lat, lng: delivery.restaurant.lng },
+            { lat: geo.lat, lng: geo.lng },
+          ),
+        )
+      }
+    }
+
+    if (distanceKm != null) {
+      data.distanceKm = distanceKm
+      data.fee = feeForDistanceKm(distanceKm) // tarifa definitiva, calculada aquí
+    }
+    if (dropoffLat != null && dropoffLng != null) {
+      data.dropoffLat = dropoffLat
+      data.dropoffLng = dropoffLng
+    }
+  }
 
   const updated = await db.delivery.update({
     where: { id },
@@ -87,7 +187,7 @@ export async function PATCH(
     room: `restaurant:${updated.restaurantId}`,
     payload: dto,
   })
-  // Notify every driver (assigned one + anyone watching the "all" view)
+  // Notify every driver (assigned ones + anyone watching the "all" view)
   await realtimeEmit({
     event: 'delivery:update',
     room: 'driver',
@@ -105,7 +205,9 @@ export async function PATCH(
       },
       PICKED_UP: {
         title: 'Pedido recogido',
-        body: `${session.name} ha recogido el pedido.`,
+        body: updated.fee != null
+          ? `${session.name} ha recogido el pedido. Tarifa: ${updated.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`
+          : `${session.name} ha recogido el pedido.`,
       },
       DELIVERED: {
         title: 'Reparto completado',
@@ -127,15 +229,19 @@ export async function PATCH(
         { ...push, tag },
       )
     }
-  } else if (nextStatus === 'CANCELLED' && updated.restaurant.assignedDriver) {
-    // El restaurante canceló → avisar al repartidor asignado
-    await sendPush(
-      { role: 'driver', userId: updated.restaurant.assignedDriver.id },
-      {
-        title: 'Pedido cancelado',
-        body: `${updated.restaurant.name} ha cancelado la solicitud de reparto.`,
-        tag,
-      },
+  } else if (nextStatus === 'CANCELLED' && assignedDriverIds.length > 0) {
+    // El restaurante canceló → avisar a TODOS los repartidores asignados
+    await Promise.all(
+      assignedDriverIds.map((driverId) =>
+        sendPush(
+          { role: 'driver', userId: driverId },
+          {
+            title: 'Pedido cancelado',
+            body: `${updated.restaurant.name} ha cancelado la solicitud de reparto.`,
+            tag,
+          },
+        ),
+      ),
     )
   }
 

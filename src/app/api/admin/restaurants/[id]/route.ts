@@ -19,11 +19,14 @@ export async function PATCH(
     }
 
     if (action === 'assign') {
-      const assignedDriverId = body.assignedDriverId ?? null
-      const res = await updateRestaurantAssignment(
-        id,
-        typeof assignedDriverId === 'string' && assignedDriverId ? assignedDriverId : null,
-      )
+      // Lista de repartidores asignados (un local puede tener varios)
+      const raw = body.assignedDriverIds
+      const driverIds = Array.isArray(raw)
+        ? raw.map((v: unknown) => String(v)).filter(Boolean)
+        : body.assignedDriverId
+          ? [String(body.assignedDriverId)]
+          : []
+      const res = await updateRestaurantAssignment(id, driverIds)
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
       return NextResponse.json({ restaurant: res.restaurant })
     }

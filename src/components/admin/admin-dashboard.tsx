@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Loader2,
   Inbox,
+  Receipt,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { api } from '@/lib/api-client'
@@ -25,12 +26,14 @@ import { StatusBadge } from '@/components/status-badge'
 import { ManageLeads } from '@/components/admin/manage-leads'
 import { ManageRestaurants } from '@/components/admin/manage-restaurants'
 import { ManageDrivers } from '@/components/admin/manage-drivers'
+import { BillingView } from '@/components/admin/billing-view'
 import { HistoryView } from '@/components/shared/history-view'
 import { StatsView } from '@/components/shared/stats-view'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { formatTime, formatDuration } from '@/lib/format'
+import { formatEur } from '@/lib/fees'
 
-type View = 'resumen' | 'solicitudes' | 'restaurantes' | 'repartidores' | 'historial' | 'estadisticas'
+type View = 'resumen' | 'solicitudes' | 'restaurantes' | 'repartidores' | 'liquidacion' | 'historial' | 'estadisticas'
 
 /**
  * Panel de administración: gestión de locales captados (leads), restaurantes,
@@ -65,6 +68,7 @@ export function AdminDashboard({
     { id: 'solicitudes', label: 'Solicitudes', icon: UserPlus, badge: pendingLeads },
     { id: 'restaurantes', label: 'Restaurantes', icon: Store },
     { id: 'repartidores', label: 'Repartidores', icon: Users },
+    { id: 'liquidacion', label: 'Liquidación', icon: Receipt },
     { id: 'historial', label: 'Historial', icon: ClipboardList },
     { id: 'estadisticas', label: 'Estadísticas', icon: BarChart3 },
   ]
@@ -97,6 +101,7 @@ export function AdminDashboard({
       {view === 'solicitudes' && <ManageLeads />}
       {view === 'restaurantes' && <ManageRestaurants />}
       {view === 'repartidores' && <ManageDrivers />}
+      {view === 'liquidacion' && <BillingView />}
       {view === 'historial' && <HistoryView fixedScope="all" />}
       {view === 'estadisticas' && <StatsView />}
     </AppShell>
@@ -243,7 +248,11 @@ function ResumenView({
                           </span>
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
-                          Repartidor: {d.assignedDriverName || 'Sin asignar'} · {formatTime(d.requestedAt)}
+                          {d.driverName
+                            ? `${d.driverName} · ${formatTime(d.requestedAt)}`
+                            : d.status === 'PENDING'
+                              ? `Pendiente de aceptar · ${formatTime(d.requestedAt)}`
+                              : formatTime(d.requestedAt)}
                         </p>
                       </div>
                       <StatusBadge status={d.status} showDot={false} />
@@ -306,7 +315,8 @@ function RecentCompleted() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{d.restaurantName}</p>
             <p className="text-xs text-muted-foreground">
-              {d.assignedDriverName || '—'} · {formatDuration(d.totalMs)} · {formatTime(d.deliveredAt)}
+              {d.driverName || '—'} · {formatDuration(d.totalMs)}
+              {d.fee != null && ` · ${formatEur(d.fee)}`} · {formatTime(d.deliveredAt)}
             </p>
           </div>
         </li>

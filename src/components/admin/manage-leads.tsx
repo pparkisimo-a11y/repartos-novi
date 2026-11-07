@@ -4,6 +4,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell,
+  Bike,
+  Check,
   CheckCircle2,
   Loader2,
   MessageSquare,
@@ -20,13 +22,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -542,7 +537,9 @@ function ConvertLeadDialog({
   const [address, setAddress] = useState('')
   const [lat, setLat] = useState('40.4168')
   const [lng, setLng] = useState('-3.7038')
-  const [assignedDriverId, setAssignedDriverId] = useState<string | undefined>(currentDriverId)
+  const [assignedDriverIds, setAssignedDriverIds] = useState<string[]>(
+    currentDriverId ? [currentDriverId] : [],
+  )
 
   const { data: driversData } = useQuery({
     queryKey: ['admin', 'drivers'],
@@ -556,6 +553,12 @@ function ConvertLeadDialog({
   useEffect(() => {
     if (target) prefill(target)
   }, [target])
+
+  function toggleDriver(id: string) {
+    setAssignedDriverIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
 
   function prefill(t: Lead | null) {
     if (!t) return
@@ -573,7 +576,7 @@ function ConvertLeadDialog({
     setAddress('')
     setLat('40.4168')
     setLng('-3.7038')
-    setAssignedDriverId(currentDriverId)
+    setAssignedDriverIds(currentDriverId ? [currentDriverId] : [])
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -588,7 +591,7 @@ function ConvertLeadDialog({
         address,
         lat: Number(lat),
         lng: Number(lng),
-        assignedDriverId: assignedDriverId || null,
+        assignedDriverIds,
       })
       toast.success('Restaurante creado', {
         description: `${res.restaurant.name}: ${res.restaurant.username} / ${password}`,
@@ -665,20 +668,43 @@ function ConvertLeadDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>Repartidor que lo llevará</Label>
-            <Select value={assignedDriverId} onValueChange={setAssignedDriverId}>
-              <SelectTrigger className="w-full" aria-label="Repartidor asignado">
-                <SelectValue placeholder="Sin asignar" />
-              </SelectTrigger>
-              <SelectContent>
-                {drivers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.name}
-                    {d.id === currentDriverId ? ' (tú)' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Repartidores que lo llevarán</Label>
+            {drivers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No hay repartidores todavía: podrás asignarlos luego desde
+                «Restaurantes».
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {drivers.map((d) => {
+                  const selected = assignedDriverIds.includes(d.id)
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => toggleDriver(d.id)}
+                      aria-pressed={selected}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors active:scale-[0.97] ${
+                        selected
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                      }`}
+                    >
+                      {selected ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <Bike className="h-3.5 w-3.5" />
+                      )}
+                      {d.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Puedes asignar varios: las peticiones llegarán a todos y el
+              primero que acepte se llevará el pedido.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">

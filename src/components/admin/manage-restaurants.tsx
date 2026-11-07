@@ -13,18 +13,12 @@ import {
   Package,
   AlertTriangle,
   Bike,
+  Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -47,9 +41,7 @@ import { toast } from 'sonner'
 import { api, ApiError, type AdminRestaurant, type AdminDriver } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
 
-const UNASSIGNED = '__none__'
-
-export function ManageRestaurants({ currentDriverId }: { currentDriverId?: string }) {
+export function ManageRestaurants() {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AdminRestaurant | null>(null)
@@ -69,22 +61,31 @@ export function ManageRestaurants({ currentDriverId }: { currentDriverId?: strin
 
   const restaurants = data?.restaurants || []
   const drivers = driversData?.drivers || []
-  const unassignedCount = restaurants.filter((r) => !r.assignedDriverId).length
+  const unassignedCount = restaurants.filter((r) => r.assignedDriverIds.length === 0).length
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['admin', 'restaurants'] })
   }
 
-  async function handleAssign(restaurant: AdminRestaurant, value: string) {
-    const driverId = value === UNASSIGNED ? null : value
+  /** Añade/quita un repartidor del local (multi-asignación). */
+  async function handleAssignToggle(restaurant: AdminRestaurant, driverId: string) {
+    const current = restaurant.assignedDriverIds
+    const next = current.includes(driverId)
+      ? current.filter((id) => id !== driverId)
+      : [...current, driverId]
     try {
-      const res = await api.adminAssignRestaurant(restaurant.id, driverId)
-      const driverName = res.restaurant.assignedDriverName
+      const res = await api.adminAssignRestaurant(restaurant.id, next)
+      const names = res.restaurant.assignedDriverNames
       toast.success(
-        driverName
-          ? `${restaurant.name} asignado a ${driverName}`
-          : `${restaurant.name} sin repartidor`,
-        { description: 'Las peticiones de este local llegarán solo a su repartidor.' },
+        names.length
+          ? `${restaurant.name} → ${names.join(', ')}`
+          : `${restaurant.name} sin repartidores`,
+        {
+          description:
+            next.length > 1
+              ? 'Las peticiones llegarán a todos; el primero que acepte se lleva el pedido.'
+              : 'Las peticiones de este local llegarán solo a su repartidor.',
+        },
       )
       invalidate()
     } catch (err) {
@@ -118,11 +119,11 @@ export function ManageRestaurants({ currentDriverId }: { currentDriverId?: strin
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
             <div className="text-sm">
               <p className="font-semibold">
-                {unassignedCount} local{unassignedCount === 1 ? '' : 'es'} sin repartidor asignado
+                {unassignedCount} local{unassignedCount === 1 ? '' : 'es'} sin repartidores asignados
               </p>
               <p className="mt-0.5">
-                Esos restaurantes no podrán pedir reparto hasta que les asignes un
-                repartidor desde la lista de abajo.
+                Esos restaurantes no podrán pedir reparto hasta que les asignes al
+                menos un repartidor desde la lista de abajo.
               </p>
             </div>
           </CardContent>
@@ -174,7 +175,7 @@ export function ManageRestaurants({ currentDriverId }: { currentDriverId?: strin
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {restaurants.map((r) => (
-            <Card key={r.id} className={`shadow-sm ${!r.assignedDriverId ? 'border-amber-300' : ''}`}>
+            <Card key={r.id} className={`shadow-sm ${r.assignedDriverIds.length === 0 ? 'border-amber-300' : ''}`}>
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
@@ -197,41 +198,42 @@ export function ManageRestaurants({ currentDriverId }: { currentDriverId?: strin
                   </span>
                 </div>
 
-                {/* Assigned driver */}
+                {/* Repartidores asignados (múltiples) */}
                 <div className="mt-3">
                   <Label className="text-xs text-muted-foreground">
-                    Repartidor asignado
+                    Repartidores ({r.assignedDriverIds.length})
                   </Label>
-                  <div className="mt-1.5">
-                    <Select
-                      value={r.assignedDriverId || UNASSIGNED}
-                      onValueChange={(v) => handleAssign(r, v)}
-                    >
-                      <SelectTrigger
-                        className={`h-9 w-full text-sm ${!r.assignedDriverId ? 'border-amber-400 text-amber-700' : ''}`}
-                        aria-label={`Repartidor asignado a ${r.name}`}
-                      >
-                        <SelectValue placeholder="Sin asignar" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={UNASSIGNED}>
-                          <span className="flex items-center gap-1.5 text-amber-700">
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                            Sin asignar
-                          </span>
-                        </SelectItem>
-                        {drivers.map((d) => (
-                          <SelectItem key={d.id} value={d.id}>
-                            <span className="flex items-center gap-1.5">
-                              <Bike className="h-3.5 w-3.5" />
-                              {d.name}
-                              {d.id === currentDriverId ? ' (tú)' : ''}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {drivers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Crea primero un repartidor en la sección «Repartidores».
+                      </p>
+                    )}
+                    {drivers.map((d) => {
+                      const selected = r.assignedDriverIds.includes(d.id)
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => handleAssignToggle(r, d.id)}
+                          aria-pressed={selected}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors active:scale-[0.97] ${
+                            selected
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                          }`}
+                        >
+                          <Bike className="h-3.5 w-3.5" />
+                          {d.name}
+                          {selected && <Check className="h-3.5 w-3.5" />}
+                        </button>
+                      )
+                    })}
                   </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Pulsa para asignar o quitar. Las peticiones llegan a todos los
+                    asignados; el primero que acepta se lleva el pedido.
+                  </p>
                 </div>
 
                 <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
@@ -266,7 +268,6 @@ export function ManageRestaurants({ currentDriverId }: { currentDriverId?: strin
       <CreateRestaurantDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        currentDriverId={currentDriverId}
         onCreated={() => {
           invalidate()
           setCreateOpen(false)
@@ -295,12 +296,10 @@ export function ManageRestaurants({ currentDriverId }: { currentDriverId?: strin
 function CreateRestaurantDialog({
   open,
   onOpenChange,
-  currentDriverId,
   onCreated,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
-  currentDriverId: string | undefined
   onCreated: () => void
 }) {
   const [loading, setLoading] = useState(false)
@@ -311,7 +310,7 @@ function CreateRestaurantDialog({
   const [address, setAddress] = useState('')
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
-  const [assignedDriverId, setAssignedDriverId] = useState<string>(currentDriverId ?? '')
+  const [assignedDriverIds, setAssignedDriverIds] = useState<string[]>([])
 
   const { data: driversData } = useQuery({
     queryKey: ['admin', 'drivers'],
@@ -327,7 +326,13 @@ function CreateRestaurantDialog({
     setAddress('')
     setLat('')
     setLng('')
-    setAssignedDriverId(currentDriverId ?? '')
+    setAssignedDriverIds([])
+  }
+
+  function toggleDriver(id: string) {
+    setAssignedDriverIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
   }
 
   function useMyLocation() {
@@ -366,7 +371,7 @@ function CreateRestaurantDialog({
         address,
         lat: Number(lat),
         lng: Number(lng),
-        assignedDriverId: assignedDriverId === UNASSIGNED ? null : assignedDriverId,
+        assignedDriverIds,
       })
       toast.success('Restaurante creado', {
         description: `Credenciales para ${res.restaurant.name}: ${res.restaurant.username}`,
@@ -441,32 +446,39 @@ function CreateRestaurantDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>Repartidor que lo lleva</Label>
-            <Select value={assignedDriverId} onValueChange={setAssignedDriverId}>
-              <SelectTrigger className="w-full" aria-label="Repartidor asignado">
-                <SelectValue placeholder="Sin asignar" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UNASSIGNED}>
-                  <span className="flex items-center gap-1.5 text-amber-700">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Sin asignar (no podrá pedir reparto)
-                  </span>
-                </SelectItem>
-                {drivers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    <span className="flex items-center gap-1.5">
+            <Label>Repartidores que lo llevan</Label>
+            {drivers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No hay repartidores todavía: podrás asignarlos luego desde la lista.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {drivers.map((d) => {
+                  const selected = assignedDriverIds.includes(d.id)
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => toggleDriver(d.id)}
+                      aria-pressed={selected}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors active:scale-[0.97] ${
+                        selected
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                      }`}
+                    >
                       <Bike className="h-3.5 w-3.5" />
                       {d.name}
-                      {d.id === currentDriverId ? ' (tú)' : ''}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                      {selected && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
-              Las peticiones de este restaurante llegarán solo al repartidor
-              elegido. Podrás cambiarlo en cualquier momento.
+              Puedes asignar varios: las peticiones llegarán a todos y el
+              primero que acepte se llevará el pedido. Podrás cambiarlo en
+              cualquier momento.
             </p>
           </div>
           <div className="space-y-2">

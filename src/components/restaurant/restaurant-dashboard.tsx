@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell,
@@ -13,11 +13,23 @@ import {
   ClipboardList,
   History,
   Search,
+  MapPin,
+  User,
+  Plus,
+  Euro,
 } from 'lucide-react'
-import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api-client'
 import type { AppUser, DeliveryDTO } from '@/lib/types'
@@ -26,6 +38,7 @@ import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
 import { PushBell } from '@/components/pwa/push-bell'
+import { formatEur, formatKm } from '@/lib/fees'
 import {
   formatTime,
   formatDateTime,
@@ -45,6 +58,8 @@ export function RestaurantDashboard({
   const qc = useQueryClient()
   const { status, subscribe } = useSocket(user)
   const [view, setView] = useState<View>('inicio')
+  const [requestOpen, setRequestOpen] = useState(false)
+  const [sending, setSending] = useState(false)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', 'restaurant', 'active'],
@@ -58,8 +73,14 @@ export function RestaurantDashboard({
     refetchInterval: 30000,
   })
 
-  const active: DeliveryDTO | undefined = data?.deliveries[0]
-  const isActive = active && ['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(active.status)
+  // Puede haber VARIOS repartos en curso a la vez
+  const actives = useMemo(
+    () =>
+      (data?.deliveries || []).filter((d) =>
+        ['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(d.status),
+      ),
+    [data],
+  )
 
   useEffect(() => {
     const onUpdate = (payload: unknown) => {
@@ -93,11 +114,24 @@ export function RestaurantDashboard({
     }
   }, [subscribe, qc])
 
-  async function handleRequest() {
+  async function handleRequest(customerName?: string) {
+    setSending(true)
     try {
-      const res = await api.createDelivery()
-      toast.success('Solicitud enviada', { description: 'Avisando al repartidor…' })
-      qc.setQueryData(['deliveries', 'restaurant', 'active'], { deliveries: [res.delivery] })
+      const res = await api.createDelivery(customerName)
+      toast.success('Solicitud enviada', {
+        description: customerName
+          ? `Pedido de ${customerName} — avisando a los repartidores…`
+          : 'Avisando a los repartidores…',
+      })
+      qc.setQueryData(
+        ['deliveries', 'restaurant', 'active'],
+        (old: { deliveries: DeliveryDTO[] } | undefined) => ({
+          deliveries: [
+            res.delivery,
+            ...(old?.deliveries.filter((x) => x.id !== res.delivery.id) || []),
+          ],
+        }),
+      )
       qc.invalidateQueries({ queryKey: ['deliveries', 'restaurant', 'all'] })
     } catch (err: unknown) {
       const msg =
@@ -106,6 +140,8 @@ export function RestaurantDashboard({
           : 'Error al solicitar'
       void refetch()
       toast.error(msg)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -162,10 +198,31 @@ export function RestaurantDashboard({
             <Card className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </Card>
-          ) : !isActive ? (
-            <RequestCard onRequest={handleRequest} />
+          ) : actives.length === 0 ? (
+            <RequestCard onRequest={() => setRequestOpen(true)} />
           ) : (
-            <ActiveDeliveryCard delivery={active!} />
+            <>
+              {actives.map((d) => (
+                <ActiveDeliveryCard key={d.id} delivery={d} />
+              ))}
+              {/* Con pedidos en curso también se puede solicitar otro */}
+              <Card className="border-dashed">
+                <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    ¿Otro pedido listo? Puede haber varios repartos en curso a la vez.
+                  </p>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="h-12 border-2 border-primary/40 px-8 text-base font-semibold text-primary hover:bg-primary/5"
+                    onClick={() => setRequestOpen(true)}
+                  >
+                    <Plus className="mr-2 h-5 w-5" />
+                    Solicitar otro reparto
+                  </Button>
+                </CardContent>
+              </Card>
+            </>
           )}
 
           {/* Stats bar */}
@@ -173,6 +230,13 @@ export function RestaurantDashboard({
             todayCount={todayCount}
             totalCompleted={completed.length}
             avgMs={avgMs}
+          />
+
+          <RequestDialog
+            open={requestOpen}
+            onOpenChange={setRequestOpen}
+            sending={sending}
+            onSubmit={handleRequest}
           />
         </div>
       )}
@@ -217,8 +281,9 @@ function RequestCard({ onRequest }: { onRequest: () => void }) {
         </div>
         <h2 className="text-2xl font-bold">¿Pedido listo?</h2>
         <p className="mt-2 max-w-md text-muted-foreground">
-          Pulsa el botón y el repartidor recibirá la solicitud al instante. Nada
-          de nombres, direcciones ni información del pedido.
+          Pulsa el botón y tus repartidores recibirán la solicitud al instante.
+          Puedes anotar el nombre del cliente para que lo vean al recoger, y
+          solicitar varios repartos a la vez si tienes varios pedidos.
         </p>
         <Button
           size="lg"
@@ -233,6 +298,80 @@ function RequestCard({ onRequest }: { onRequest: () => void }) {
         </p>
       </CardContent>
     </Card>
+  )
+}
+
+/** Diálogo al solicitar reparto: nombre del cliente (opcional). */
+function RequestDialog({
+  open,
+  onOpenChange,
+  sending,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  sending: boolean
+  onSubmit: (customerName?: string) => void
+}) {
+  const [name, setName] = useState('')
+
+  function handleSend() {
+    onSubmit(name.trim() || undefined)
+    setName('')
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-primary" />
+            Solicitar repartidor
+          </DialogTitle>
+          <DialogDescription>
+            Tus repartidores recibirán la solicitud al instante.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            handleSend()
+          }}
+          className="space-y-4 py-1"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="req-name">Nombre del cliente (opcional)</Label>
+            <Input
+              id="req-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ej. Pedro — kebab mixto"
+              maxLength={60}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Sirve para que el repartidor sepa de quién es el pedido. Puedes
+              dejarlo vacío.
+            </p>
+          </div>
+        </form>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            onClick={handleSend}
+            disabled={sending}
+            className="bg-primary text-white hover:bg-primary/90"
+          >
+            {sending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Enviar solicitud
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -267,8 +406,21 @@ function ActiveDeliveryCard({ delivery }: { delivery: DeliveryDTO }) {
       </div>
 
       <CardContent className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Estado del reparto</p>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {delivery.customerName && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+                <User className="h-3.5 w-3.5" />
+                {delivery.customerName}
+              </span>
+            )}
+            {delivery.status === 'ACCEPTED' && delivery.driverName && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                <Bike className="h-3.5 w-3.5" />
+                {delivery.driverName}
+              </span>
+            )}
+          </div>
           <StatusBadge status={delivery.status} />
         </div>
 
@@ -308,20 +460,41 @@ function ActiveDeliveryCard({ delivery }: { delivery: DeliveryDTO }) {
         {delivery.status === 'PENDING' && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
             <Clock className="h-4 w-4 shrink-0" />
-            Esperando a que el repartidor acepte la solicitud…
+            Esperando a que un repartidor acepte la solicitud…
           </div>
         )}
         {delivery.status === 'ACCEPTED' && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
             <Bike className="h-4 w-4 shrink-0" />
-            El repartidor se dirige a tu local para recoger el pedido.
+            {delivery.driverName || 'El repartidor'} se dirige a tu local para recoger el pedido.
           </div>
         )}
         {delivery.status === 'PICKED_UP' && (
-          <div className="mt-5 flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-700">
-            <PackageCheck className="h-4 w-4 shrink-0" />
-            Pedido recogido. El repartidor está realizando la entrega.
-          </div>
+          <>
+            <div className="mt-5 flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-700">
+              <PackageCheck className="h-4 w-4 shrink-0" />
+              Pedido recogido. {delivery.driverName || 'El repartidor'} está realizando la entrega.
+            </div>
+            {(delivery.dropoffAddress || delivery.fee != null) && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    Entrega en: <strong className="text-foreground">{delivery.dropoffAddress || '—'}</strong>
+                    {delivery.distanceKm != null && (
+                      <span className="ml-1.5 text-xs">({formatKm(delivery.distanceKm)})</span>
+                    )}
+                  </span>
+                </span>
+                {delivery.fee != null && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-700">
+                    <Euro className="h-3.5 w-3.5" />
+                    Tarifa: {formatEur(delivery.fee)}
+                  </span>
+                )}
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

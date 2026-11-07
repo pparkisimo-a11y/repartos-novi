@@ -66,8 +66,8 @@ export interface AdminRestaurant {
   lng: number
   createdAt: string
   services: number
-  assignedDriverId: string | null
-  assignedDriverName: string | null
+  assignedDriverIds: string[]
+  assignedDriverNames: string[]
 }
 
 export interface AdminDriver {
@@ -80,6 +80,27 @@ export interface AdminDriver {
 }
 
 export type LeadStatus = 'PENDING' | 'CONTACTED' | 'CONVERTED' | 'REJECTED'
+
+export interface BillingDriverRow {
+  driverId: string | null
+  driverName: string
+  count: number
+  totalEur: number
+}
+
+export interface BillingRestaurantRow {
+  restaurantId: string
+  restaurantName: string
+  count: number
+  totalEur: number
+  byDriver: BillingDriverRow[]
+}
+
+export interface BillingResponse {
+  month: string
+  totals: { count: number; totalEur: number }
+  restaurants: BillingRestaurantRow[]
+}
 
 export interface Lead {
   id: string
@@ -121,13 +142,39 @@ export const api = {
     const q = qs.toString()
     return request<{ deliveries: DeliveryDTO[] }>(`/api/deliveries${q ? `?${q}` : ''}`)
   },
-  createDelivery: () =>
-    request<{ delivery: DeliveryDTO }>('/api/deliveries', { method: 'POST' }),
-  updateDelivery: (id: string, status: string) =>
+  createDelivery: (customerName?: string) =>
+    request<{ delivery: DeliveryDTO }>('/api/deliveries', {
+      method: 'POST',
+      body: JSON.stringify({ customerName: customerName?.trim() || undefined }),
+    }),
+  updateDelivery: (
+    id: string,
+    status: string,
+    extra?: {
+      customerName?: string
+      dropoffAddress?: string
+      dropoffLat?: number
+      dropoffLng?: number
+      distanceKm?: number
+    },
+  ) =>
     request<{ delivery: DeliveryDTO }>(`/api/deliveries/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...extra }),
     }),
+
+  /** Geocodificación (dirección → coordenadas) para previsualizar tarifa.
+   *  `bias` (posición del restaurante) acota la búsqueda a su entorno. */
+  geocode: (q: string, bias?: { lat: number; lng: number }) => {
+    const qs = new URLSearchParams({ q })
+    if (bias) {
+      qs.set('lat', String(bias.lat))
+      qs.set('lng', String(bias.lng))
+    }
+    return request<{ result: { lat: number; lng: number; label?: string } | null }>(
+      `/api/util/geocode?${qs.toString()}`,
+    )
+  },
 
   stats: () => request<StatsResponse>('/api/stats'),
   restaurants: () =>
@@ -158,7 +205,7 @@ export const api = {
     address: string
     lat: number
     lng: number
-    assignedDriverId?: string | null
+    assignedDriverIds?: string[]
   }) =>
     request<{ restaurant: AdminRestaurant }>('/api/admin/restaurants', {
       method: 'POST',
@@ -169,10 +216,10 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ action: 'reset-password', password }),
     }),
-  adminAssignRestaurant: (id: string, assignedDriverId: string | null) =>
+  adminAssignRestaurant: (id: string, assignedDriverIds: string[]) =>
     request<{ restaurant: AdminRestaurant }>(`/api/admin/restaurants/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ action: 'assign', assignedDriverId }),
+      body: JSON.stringify({ action: 'assign', assignedDriverIds }),
     }),
   adminDeleteRestaurant: (id: string) =>
     request<{ ok: boolean }>(`/api/admin/restaurants/${id}`, {
@@ -226,7 +273,7 @@ export const api = {
       address?: string
       lat: number
       lng: number
-      assignedDriverId?: string | null
+      assignedDriverIds?: string[]
     },
   ) =>
     request<{ lead: Lead; restaurant: { id: string; name: string; username: string } }>(
@@ -236,4 +283,8 @@ export const api = {
         body: JSON.stringify(data),
       },
     ),
+
+  // Liquidación mensual (admin): totales por local y por repartidor
+  adminBilling: (month: string) =>
+    request<BillingResponse>(`/api/admin/billing?month=${encodeURIComponent(month)}`),
 }

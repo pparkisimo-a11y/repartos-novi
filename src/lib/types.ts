@@ -47,9 +47,18 @@ export interface DeliveryDTO {
   deliveredAt: string | null
   rejectedAt: string | null
   totalMs: number | null
-  /** Driver this delivery is routed to (from the restaurant's assignment). */
-  assignedDriverId: string | null
-  assignedDriverName: string | null
+  /** Repartidores asignados al restaurante: a quiénes llega la petición. */
+  assignedDriverIds: string[]
+  assignedDriverNames: string[]
+  /** Repartidor que aceptó el reparto (null hasta que alguien lo tome). */
+  driverId: string | null
+  driverName: string | null
+  /** Nombre/anotación del pedido (opcional, la pone el restaurante al solicitar). */
+  customerName: string | null
+  /** Datos de la entrega, rellenados por el repartidor al recoger. */
+  dropoffAddress: string | null
+  distanceKm: number | null
+  fee: number | null
 }
 
 export const STATUS_LABELS: Record<DeliveryStatus, string> = {
@@ -68,6 +77,7 @@ export interface StatsResponse {
     avgMs: number
     active: number
     pending: number
+    totalEur: number
   }
   byRestaurant: {
     restaurantId: string
@@ -75,6 +85,7 @@ export interface StatsResponse {
     count: number
     totalMs: number
     avgMs: number
+    totalEur: number
   }[]
   trend: { date: string; count: number }[]
 }

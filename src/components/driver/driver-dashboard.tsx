@@ -19,9 +19,23 @@ import {
   Home,
   ArrowRight,
   Bell,
+  User,
+  Euro,
+  Ruler,
+  Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
 import type { AppUser, DeliveryDTO } from '@/lib/types'
@@ -34,6 +48,7 @@ import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
 import { formatTime } from '@/lib/format'
 import { PushBell } from '@/components/pwa/push-bell'
+import { feeForDistanceKm, haversineKm, formatEur, formatKm, feeExplanation } from '@/lib/fees'
 
 type View = 'pedidos' | 'historial' | 'estadisticas'
 
@@ -49,6 +64,13 @@ export function DriverDashboard({
   const beepRef = useRef<AudioContext | null>(null)
   const [view, setView] = useState<View>('pedidos')
   const [available, setAvailable] = useState(true)
+  const [pickupTarget, setPickupTarget] = useState<DeliveryDTO | null>(null)
+
+  // ¿Es un pedido «mío»? Con varios repartidores por local: la petición
+  // llega a todos los asignados, pero una vez aceptada solo es del que la tomó.
+  const isMine = (d: DeliveryDTO) =>
+    (d.assignedDriverIds || []).includes(user.id) &&
+    (!d.driverId || d.driverId === user.id)
 
   const { data, isLoading } = useQuery({
     queryKey: ['deliveries', 'driver', 'active'],
@@ -93,37 +115,39 @@ export function DriverDashboard({
   useEffect(() => {
     const onNew = (payload: unknown) => {
       const d = payload as DeliveryDTO
-      const mine = d.assignedDriverId === user.id
-      if (mine) {
+      if (isMine(d)) {
         qc.setQueryData(['deliveries', 'driver', 'active'], (old: { deliveries: DeliveryDTO[] } | undefined) => ({
           deliveries: [d, ...(old?.deliveries.filter((x) => x.id !== d.id) || [])],
         }))
-      }
-      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
-      if (mine && available) {
-        playBeep()
-        toast.success('Nueva solicitud de reparto', {
-          description: `${d.restaurantName} solicita repartidor`,
-          duration: 8000,
-        })
-        // La notificación de pantalla la muestra el service worker (push):
-        // en iOS no se puede mostrar desde la página.
+        qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
+        if (available) {
+          playBeep()
+          toast.success('Nueva solicitud de reparto', {
+            description: `${d.restaurantName} solicita repartidor${d.customerName ? ` — ${d.customerName}` : ''}`,
+            duration: 8000,
+          })
+          // La notificación de pantalla la muestra el service worker (push):
+          // en iOS no se puede mostrar desde la página.
+        }
       }
     }
     const onUpdate = (payload: unknown) => {
       const d = payload as DeliveryDTO
-      const mine = d.assignedDriverId === user.id
-      const patch = (old: { deliveries: DeliveryDTO[] } | undefined) => {
-        if (!old) return old
-        const rest = old.deliveries.filter((x) => x.id !== d.id)
-        if (['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(d.status)) {
-          return { deliveries: [d, ...rest] }
+      if (isMine(d)) {
+        const patch = (old: { deliveries: DeliveryDTO[] } | undefined) => {
+          if (!old) return old
+          const rest = old.deliveries.filter((x) => x.id !== d.id)
+          if (['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(d.status)) {
+            return { deliveries: [d, ...rest] }
+          }
+          return { deliveries: rest }
         }
-        return { deliveries: rest }
+        qc.setQueryData(['deliveries', 'driver', 'active'], patch)
+        qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       }
-      if (mine) qc.setQueryData(['deliveries', 'driver', 'active'], patch)
-      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
-      if (d.status === 'CANCELLED') toast.info('Solicitud cancelada', { description: `${d.restaurantName} canceló el reparto.` })
+      if (d.status === 'CANCELLED' && (d.assignedDriverIds || []).includes(user.id)) {
+        toast.info('Solicitud cancelada', { description: `${d.restaurantName} canceló el reparto.` })
+      }
     }
     const off1 = subscribe('delivery:new', onNew)
     const off2 = subscribe('delivery:update', onUpdate)
@@ -143,19 +167,23 @@ export function DriverDashboard({
     .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime())
     .slice(0, 4)
 
+  /** Aplica una entrega actualizada a las queries locales (activo + reciente). */
+  function applyDeliveryUpdate(d: DeliveryDTO) {
+    qc.setQueryData(['deliveries', 'driver', 'active'], (old: { deliveries: DeliveryDTO[] } | undefined) => {
+      if (!old) return old
+      const rest = old.deliveries.filter((x) => x.id !== d.id)
+      if (['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(d.status)) {
+        return { deliveries: [d, ...rest] }
+      }
+      return { deliveries: rest }
+    })
+    qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
+  }
+
   async function handleAction(d: DeliveryDTO, status: string, label: string) {
     try {
       const res = await api.updateDelivery(d.id, status)
-      const patch = (old: { deliveries: DeliveryDTO[] } | undefined) => {
-        if (!old) return old
-        const rest = old.deliveries.filter((x) => x.id !== res.delivery.id)
-        if (['PENDING', 'ACCEPTED', 'PICKED_UP'].includes(res.delivery.status)) {
-          return { deliveries: [res.delivery, ...rest] }
-        }
-        return { deliveries: rest }
-      }
-      qc.setQueryData(['deliveries', 'driver', 'active'], patch)
-      qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
+      applyDeliveryUpdate(res.delivery)
       toast.success(label)
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Error'
@@ -205,13 +233,23 @@ export function DriverDashboard({
           activity={activity}
           onAccept={(d) => handleAction(d, 'ACCEPTED', 'Solicitud aceptada')}
           onReject={(d) => handleAction(d, 'REJECTED', 'Solicitud rechazada')}
-          onPickup={(d) => handleAction(d, 'PICKED_UP', 'Pedido marcado como recogido')}
+          onPickup={(d) => setPickupTarget(d)}
           onDeliver={(d) => handleAction(d, 'DELIVERED', 'Reparto completado')}
           onViewHistory={() => setView('historial')}
         />
       )}
       {view === 'historial' && <HistoryView />}
       {view === 'estadisticas' && <StatsView />}
+
+      {/* Diálogo de recogida: nombre + dirección → tarifa por distancia */}
+      <PickupDialog
+        delivery={pickupTarget}
+        onOpenChange={(o) => !o && setPickupTarget(null)}
+        onDone={(d) => {
+          applyDeliveryUpdate(d)
+          setPickupTarget(null)
+        }}
+      />
     </AppShell>
   )
 }
@@ -370,9 +408,15 @@ function PedidosView({
                               : moving
                                 ? 'En camino'
                                 : 'Pendiente'}
+                            {d.fee != null && done && (
+                              <span className="ml-1.5 font-mono text-xs font-semibold text-emerald-600">
+                                {formatEur(d.fee)}
+                              </span>
+                            )}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {d.restaurantName} · #{d.id.slice(-4).toUpperCase()}
+                            {d.restaurantName}
+                            {d.customerName ? ` — ${d.customerName}` : ''} · #{d.id.slice(-4).toUpperCase()}
                           </p>
                         </div>
                         <span className="shrink-0 text-xs text-muted-foreground">
@@ -444,11 +488,19 @@ function OrderCard({
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
               <Bike className="h-3.5 w-3.5" />
-              {delivery.assignedDriverName
-                ? `Repartidor: ${delivery.assignedDriverName}`
+              {delivery.driverName
+                ? `Repartidor: ${delivery.driverName}`
                 : 'Sin repartidor asignado'}
             </span>
             <StatusBadge status={delivery.status} showDot={false} />
+          </div>
+        )}
+        {delivery.customerName && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+              <User className="h-3.5 w-3.5" />
+              {delivery.customerName}
+            </span>
           </div>
         )}
         <div className="grid gap-5 sm:grid-cols-2">
@@ -477,12 +529,28 @@ function OrderCard({
                 </div>
                 <div>
                   <p className="text-base font-bold">Entrega</p>
-                  <p className="text-sm text-muted-foreground">
-                    Destino: te lo indican al recoger
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    El cliente y la dirección te los dan en el restaurante
-                  </p>
+                  {delivery.dropoffAddress ? (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        {delivery.dropoffAddress}
+                      </p>
+                      {delivery.fee != null && (
+                        <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                          <Euro className="h-3 w-3" />
+                          {formatKm(delivery.distanceKm)} · Tarifa {formatEur(delivery.fee)}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        Destino: te lo indican al recoger
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        El cliente y la dirección te los dan en el restaurante
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -557,6 +625,229 @@ function OrderCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Diálogo de RECOGIDA: el repartidor confirma el nombre del cliente e
+ * introduce la dirección de entrega. Con la distancia (geocodificada o a
+ * mano) se calcula y guarda la tarifa del reparto junto con el pedido.
+ */
+function PickupDialog({
+  delivery,
+  onOpenChange,
+  onDone,
+}: {
+  delivery: DeliveryDTO | null
+  onOpenChange: (o: boolean) => void
+  onDone: (d: DeliveryDTO) => void
+}) {
+  const [customerName, setCustomerName] = useState('')
+  const [address, setAddress] = useState('')
+  const [manualKm, setManualKm] = useState('')
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null)
+  const [geoState, setGeoState] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle')
+  const [submitting, setSubmitting] = useState(false)
+
+  const open = !!delivery
+
+  // Prefill al abrir (nombre del cliente si el restaurante lo anotó)
+  useEffect(() => {
+    if (delivery) {
+      setCustomerName(delivery.customerName || '')
+      setAddress('')
+      setManualKm('')
+      setGeo(null)
+      setGeoState('idle')
+    }
+  }, [delivery])
+
+  // Geocodificación con debounce (mínimo 5 caracteres)
+  useEffect(() => {
+    if (!delivery) return
+    const q = address.trim()
+    if (q.length < 5) {
+      setGeo(null)
+      setGeoState('idle')
+      return
+    }
+    setGeoState('searching')
+    const t = setTimeout(async () => {
+      try {
+        // Sesgo: buscar cerca del restaurante (evita matches de otras ciudades)
+        const res = await api.geocode(q, { lat: delivery.lat, lng: delivery.lng })
+        if (res.result) {
+          setGeo({ lat: res.result.lat, lng: res.result.lng })
+          setGeoState('found')
+        } else {
+          setGeo(null)
+          setGeoState('notfound')
+        }
+      } catch {
+        setGeo(null)
+        setGeoState('notfound')
+      }
+    }, 750)
+    return () => clearTimeout(t)
+  }, [address, delivery])
+
+  // Distancia y tarifa en vivo (km manuales manda sobre la geocodificación)
+  const manualKmNum = Number(manualKm.replace(',', '.'))
+  const manualValid = manualKm.trim() !== '' && Number.isFinite(manualKmNum) && manualKmNum > 0
+  const distanceKm = manualValid
+    ? manualKmNum
+    : geo && delivery
+      ? haversineKm({ lat: delivery.lat, lng: delivery.lng }, geo)
+      : null
+  const fee = distanceKm != null ? feeForDistanceKm(distanceKm) : null
+
+  const canSubmit = address.trim().length >= 4 && distanceKm != null && !submitting
+
+  async function handleSubmit() {
+    if (!delivery || !canSubmit) return
+    setSubmitting(true)
+    try {
+      const res = await api.updateDelivery(delivery.id, 'PICKED_UP', {
+        customerName: customerName.trim() || undefined,
+        dropoffAddress: address.trim(),
+        ...(manualValid
+          ? { distanceKm: manualKmNum }
+          : geo
+            ? { dropoffLat: geo.lat, dropoffLng: geo.lng }
+            : {}),
+      })
+      toast.success('Pedido recogido', {
+        description:
+          res.delivery.fee != null
+            ? `Tarifa del reparto: ${formatEur(res.delivery.fee)}`
+            : undefined,
+      })
+      onDone(res.delivery)
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Error'
+      toast.error(msg)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PackageCheck className="h-5 w-5 text-primary" />
+            Recoger pedido
+            {delivery && (
+              <span className="font-mono text-sm font-normal text-muted-foreground">
+                #{delivery.id.slice(-6).toUpperCase()}
+              </span>
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            {delivery
+              ? `Confirma los datos de la entrega de ${delivery.restaurantName}. La tarifa se calcula con la distancia y queda guardada con el pedido.`
+              : ''}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          <div className="space-y-2">
+            <Label htmlFor="pu-name">Nombre del cliente</Label>
+            <Input
+              id="pu-name"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Ej. Pedro"
+              maxLength={60}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="pu-address">Dirección de entrega *</Label>
+            <Input
+              id="pu-address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Calle, número, ciudad"
+              maxLength={200}
+            />
+            {/* Estado de la búsqueda */}
+            {geoState === 'searching' && (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Buscando dirección…
+              </p>
+            )}
+            {geoState === 'found' && distanceKm != null && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <span className="flex items-center gap-1.5 text-sm text-emerald-700">
+                  <MapPin className="h-4 w-4" />
+                  ≈ {formatKm(distanceKm)} desde {delivery?.restaurantName}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white">
+                  <Euro className="h-3.5 w-3.5" />
+                  {formatEur(fee)}
+                </span>
+              </div>
+            )}
+            {geoState === 'notfound' && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                No encontramos esta dirección en el mapa. Introduce la distancia
+                a mano para calcular la tarifa.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="pu-km" className="flex items-center gap-1.5 text-muted-foreground">
+              <Ruler className="h-3.5 w-3.5" />
+              Distancia a mano (km) — opcional
+            </Label>
+            <Input
+              id="pu-km"
+              value={manualKm}
+              onChange={(e) => setManualKm(e.target.value)}
+              placeholder="Ej. 2.5"
+              inputMode="decimal"
+              className="max-w-[10rem]"
+            />
+            {manualValid && (
+              <p className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                Tarifa: <strong>{formatEur(fee)}</strong>
+                <span className="text-xs">({formatKm(manualKmNum)})</span>
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Si la conoces o el mapa no encuentra la dirección. Prevalece
+              sobre la distancia calculada.
+            </p>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-3">
+            <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">
+              <strong className="text-foreground">Cómo se calcula la tarifa:</strong>{' '}
+              {feeExplanation()}.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="bg-primary text-white hover:bg-primary/90"
+          >
+            {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Confirmar recogida
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

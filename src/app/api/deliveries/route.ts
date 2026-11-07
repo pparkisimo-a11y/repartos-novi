@@ -17,14 +17,21 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const scope = searchParams.get('scope') // 'active' | 'recent' | undefined
-  // For drivers: 'mine' (default) limits to their assigned restaurants, 'all' shows everything
+  // For drivers: 'mine' (default) limits to their deliveries + their
+  // restaurants' untaken requests; 'all' shows everything.
   const view = searchParams.get('view') === 'all' ? 'all' : 'mine'
 
   if (session.role === 'driver' || session.role === 'admin') {
     const where: Record<string, unknown> = {}
-    // Drivers default to their assigned restaurants; admins always see all.
     if (view === 'mine' && session.role === 'driver') {
-      where.restaurant = { assignedDriverId: session.id }
+      // Mis repartos (los que acepté) + peticiones sin tomar de mis restaurantes
+      where.OR = [
+        { driverId: session.id },
+        {
+          driverId: null,
+          restaurant: { drivers: { some: { driverId: session.id } } },
+        },
+      ]
     }
     if (scope === 'active') {
       where.status = { in: ['PENDING', 'ACCEPTED', 'PICKED_UP'] }
@@ -57,49 +64,44 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Solo los restaurantes pueden solicitar reparto' }, { status: 403 })
   }
 
+  const body = await req.json().catch(() => ({}))
+  // Nombre/anotación opcional del pedido (p. ej. el nombre del cliente)
+  const customerName = String(body.customerName || '').trim().slice(0, 60) || null
+
   const restaurant = await db.restaurant.findUnique({
     where: { id: session.id },
-    select: { id: true, name: true, address: true, lat: true, lng: true, assignedDriver: { select: { id: true, name: true } } },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      lat: true,
+      lng: true,
+      drivers: { select: { driverId: true, driver: { select: { id: true, name: true } } } },
+    },
   })
   if (!restaurant) {
     return NextResponse.json({ error: 'Restaurante no encontrado' }, { status: 404 })
   }
 
-  if (!restaurant.assignedDriver) {
-    return NextResponse.json(
-      { error: 'Tu local todavía no tiene repartidor asignado. Avisa a tu repartidor para que te asigne desde su consola.' },
-      { status: 409 },
-    )
-  }
-
-  // Prevent duplicate active requests
-  const active = await db.delivery.findFirst({
-    where: { restaurantId: session.id, status: { in: ['PENDING', 'ACCEPTED', 'PICKED_UP'] } },
-  })
-  if (active) {
+  const assignedDrivers = restaurant.drivers.map((a) => a.driver)
+  if (assignedDrivers.length === 0) {
     return NextResponse.json(
       {
-        error: 'Ya tienes una solicitud de reparto en curso',
-        delivery: serializeDelivery({
-          ...active,
-          restaurant: {
-            name: restaurant.name,
-            address: restaurant.address,
-            lat: restaurant.lat,
-            lng: restaurant.lng,
-            assignedDriver: restaurant.assignedDriver,
-          },
-        }, false),
+        error: 'Tu local todavía no tiene repartidores asignados. Avisa a tu repartidor para que te asigne desde la administración.',
       },
       { status: 409 },
     )
   }
+
+  // Un restaurante puede tener varias solicitudes en curso a la vez:
+  // cada pedido es independiente (varios clientes, varios repartidores).
 
   const delivery = await db.delivery.create({
     data: {
       restaurantId: session.id,
       status: 'PENDING',
       requestedAt: new Date(),
+      customerName,
     },
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
@@ -107,7 +109,7 @@ export async function POST(req: Request) {
   const dto = serializeDelivery(delivery)
 
   // Notify all drivers; each client beeps only when the delivery is routed to
-  // them (payload.assignedDriverId) and silently refreshes otherwise.
+  // them (payload.assignedDriverIds) and silently refreshes otherwise.
   await realtimeEmit({
     event: 'delivery:new',
     room: 'driver',
@@ -120,15 +122,19 @@ export async function POST(req: Request) {
     payload: dto,
   })
 
-  // Web Push al repartidor asignado: llega aunque tenga la app cerrada
-  // (clave en iPhone, donde solo el service worker puede mostrar avisos).
-  await sendPush(
-    { role: 'driver', userId: restaurant.assignedDriver.id },
-    {
-      title: 'Nueva solicitud de reparto',
-      body: `${restaurant.name} necesita repartidor`,
-      tag: `delivery-${delivery.id}`,
-    },
+  // Web Push a TODOS los repartidores asignados: llega aunque tengan la app
+  // cerrada (clave en iPhone, donde solo el service worker puede mostrar avisos).
+  await Promise.all(
+    assignedDrivers.map((driver) =>
+      sendPush(
+        { role: 'driver', userId: driver.id },
+        {
+          title: 'Nueva solicitud de reparto',
+          body: `${restaurant.name} necesita repartidor${customerName ? ` — ${customerName}` : ''}`,
+          tag: `delivery-${delivery.id}`,
+        },
+      ),
+    ),
   )
 
   return NextResponse.json({ delivery: dto }, { status: 201 })

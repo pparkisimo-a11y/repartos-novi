@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Bike, Clock, Timer, TrendingUp, Store, BarChart3 } from 'lucide-react'
+import { Loader2, Bike, Timer, TrendingUp, Store, BarChart3, Euro } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -14,6 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/lib/api-client'
 import { formatDuration, formatDateShort } from '@/lib/format'
+import { formatEur } from '@/lib/fees'
 
 export function StatsView() {
   const { data, isLoading } = useQuery({
@@ -40,9 +41,9 @@ export function StatsView() {
       tone: 'bg-primary/10 text-primary',
     },
     {
-      label: 'Tiempo total',
-      value: formatDuration(totals.totalMs),
-      icon: Clock,
+      label: 'Ingresos',
+      value: formatEur(totals.totalEur),
+      icon: Euro,
       tone: 'bg-emerald-100 text-emerald-600',
     },
     {
@@ -158,6 +159,7 @@ export function StatsView() {
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-3 font-semibold sm:px-5">Restaurante</th>
                     <th className="px-3 py-3 text-right font-semibold sm:px-5">Servicios</th>
+                    <th className="px-3 py-3 text-right font-semibold sm:px-5">Ingresos</th>
                     <th className="hidden px-3 py-3 text-right font-semibold sm:table-cell sm:px-5">Tiempo total</th>
                     <th className="px-3 py-3 text-right font-semibold sm:px-5">Media</th>
                   </tr>
@@ -167,6 +169,7 @@ export function StatsView() {
                     <tr key={r.restaurantId} className="border-t border-border">
                       <td className="max-w-[9rem] truncate px-3 py-3 font-medium sm:max-w-none sm:px-5">{r.restaurantName}</td>
                       <td className="px-3 py-3 text-right font-semibold sm:px-5">{r.count}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-emerald-600 sm:px-5">{formatEur(r.totalEur)}</td>
                       <td className="hidden whitespace-nowrap px-3 py-3 font-mono sm:table-cell sm:px-5">{formatDuration(r.totalMs)}</td>
                       <td className="whitespace-nowrap px-3 py-3 font-mono sm:px-5">{formatDuration(r.avgMs)}</td>
                     </tr>

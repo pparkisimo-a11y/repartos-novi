@@ -42,17 +42,14 @@ export async function listDrivers(): Promise<AdminDriverOut[]> {
   const rows = await db.driver.findMany({
     orderBy: { createdAt: 'asc' },
     include: {
-      _count: { select: { restaurants: true } },
-      restaurants: { select: { id: true } },
+      _count: {
+        select: {
+          restaurants: true, // filas de asignación (RestaurantDriver)
+          deliveries: true, // repartos que este repartidor aceptó/entregó
+        },
+      },
     },
   })
-
-  // Total deliveries served per assigned restaurant set
-  const serviceCounts = await db.delivery.groupBy({
-    by: ['restaurantId'],
-    _count: { _all: true },
-  })
-  const servicesByRestaurant = new Map(serviceCounts.map((s) => [s.restaurantId, s._count._all]))
 
   return rows.map((d) => ({
     id: d.id,
@@ -60,7 +57,7 @@ export async function listDrivers(): Promise<AdminDriverOut[]> {
     name: d.name,
     createdAt: d.createdAt.toISOString(),
     restaurants: d._count.restaurants,
-    services: d.restaurants.reduce((acc, r) => acc + (servicesByRestaurant.get(r.id) || 0), 0),
+    services: d._count.deliveries,
   }))
 }
 
@@ -134,8 +131,10 @@ export async function deleteDriver(
   const existing = await db.driver.findUnique({ where: { id } })
   if (!existing) return { ok: false, error: 'Repartidor no encontrado', status: 404 }
 
-  // Unassign his restaurants (deliveries/history stay, they belong to the restaurant)
-  await db.restaurant.updateMany({ where: { assignedDriverId: id }, data: { assignedDriverId: null } })
+  // Suscripciones push huérfanas fuera; las asignaciones a restaurantes se
+  // quitan en cascada (RestaurantDriver.onDelete: Cascade) y sus repartos
+  // entregados se conservan para la liquidación (driverId → null).
+  await db.pushSubscription.deleteMany({ where: { role: 'driver', userId: id } })
   await db.driver.delete({ where: { id } })
   return { ok: true }
 }

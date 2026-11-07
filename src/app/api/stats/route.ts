@@ -8,8 +8,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   }
 
-  // Drivers only see their assigned restaurants; admins see everything.
-  const mine = session.role === 'admin' ? {} : { restaurant: { assignedDriverId: session.id } }
+  // Repartidor: SUS repartos completados (los que él aceptó y entregó).
+  // Admin: todos.
+  const mine = session.role === 'admin' ? {} : { driverId: session.id }
 
   const deliveries = await db.delivery.findMany({
     where: { ...mine, status: 'DELIVERED' },
@@ -24,14 +25,20 @@ export async function GET(req: Request) {
     0,
   )
   const avgMs = totalServices > 0 ? Math.round(totalMs / totalServices) : 0
+  const totalEur = completed.reduce((acc, d) => acc + (d.fee ?? 0), 0)
 
   // Per-restaurant breakdown
-  const byRestaurantMap = new Map<string, { name: string; count: number; totalMs: number }>()
+  const byRestaurantMap = new Map<
+    string,
+    { name: string; count: number; totalMs: number; totalEur: number }
+  >()
   for (const d of completed) {
     const key = d.restaurantId
-    const entry = byRestaurantMap.get(key) || { name: d.restaurant.name, count: 0, totalMs: 0 }
+    const entry =
+      byRestaurantMap.get(key) || { name: d.restaurant.name, count: 0, totalMs: 0, totalEur: 0 }
     entry.count += 1
     entry.totalMs += new Date(d.deliveredAt!).getTime() - new Date(d.requestedAt).getTime()
+    entry.totalEur += d.fee ?? 0
     byRestaurantMap.set(key, entry)
   }
   const byRestaurant = Array.from(byRestaurantMap.entries())
@@ -41,6 +48,7 @@ export async function GET(req: Request) {
       count: v.count,
       totalMs: v.totalMs,
       avgMs: v.count > 0 ? Math.round(v.totalMs / v.count) : 0,
+      totalEur: Math.round(v.totalEur * 100) / 100,
     }))
     .sort((a, b) => b.count - a.count)
 
@@ -59,11 +67,24 @@ export async function GET(req: Request) {
     trend.push({ date: key, count: trendMap.get(key) || 0 })
   }
 
-  // Pending/active count
-  const active = await db.delivery.count({
-    where: { ...mine, status: { in: ['PENDING', 'ACCEPTED', 'PICKED_UP'] } },
+  // Pending/active count (mis restaurantes: peticiones sin tomar + mías en curso)
+  const activeWhere =
+    session.role === 'admin'
+      ? { status: { in: ['PENDING', 'ACCEPTED', 'PICKED_UP'] as string[] } }
+      : {
+          OR: [
+            { driverId: session.id },
+            {
+              driverId: null,
+              restaurant: { drivers: { some: { driverId: session.id } } },
+            },
+          ],
+          status: { in: ['PENDING', 'ACCEPTED', 'PICKED_UP'] as string[] },
+        }
+  const active = await db.delivery.count({ where: activeWhere })
+  const pendingCount = await db.delivery.count({
+    where: { ...activeWhere, status: 'PENDING' },
   })
-  const pendingCount = await db.delivery.count({ where: { ...mine, status: 'PENDING' } })
 
   return NextResponse.json({
     totals: {
@@ -72,6 +93,7 @@ export async function GET(req: Request) {
       avgMs,
       active,
       pending: pendingCount,
+      totalEur: Math.round(totalEur * 100) / 100,
     },
     byRestaurant,
     trend,

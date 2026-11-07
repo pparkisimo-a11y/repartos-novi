@@ -19,30 +19,42 @@ model Admin {
 }
 
 model Driver {
-  id        String       @id @default(cuid())
-  username  String       @unique
-  password  String
-  name      String
-  createdAt DateTime     @default(now())
-  restaurants Restaurant[]
+  id          String             @id @default(cuid())
+  username    String             @unique
+  password    String
+  name        String
+  createdAt   DateTime           @default(now())
+  restaurants RestaurantDriver[]
+  deliveries  Delivery[]
 }
 
 model Restaurant {
-  id        String    @id @default(cuid())
-  name      String
-  username  String    @unique
-  password  String
-  address   String
-  lat       Float
-  lng       Float
-  createdAt DateTime  @default(now())
-  deliveries Delivery[]
-  convertedLeads Lead[] @relation("ConvertedLeads")
+  id             String             @id @default(cuid())
+  name           String
+  username       String             @unique
+  password       String
+  address        String
+  lat            Float
+  lng            Float
+  createdAt      DateTime           @default(now())
+  deliveries     Delivery[]
+  convertedLeads Lead[]             @relation("ConvertedLeads")
+  drivers        RestaurantDriver[]
+}
 
-  // The driver this restaurant is assigned to. Deliveries requested by this
-  // restaurant are routed (and notified) only to the assigned driver.
-  assignedDriverId String?
-  assignedDriver   Driver? @relation(fields: [assignedDriverId], references: [id])
+// Asignación N:M — un restaurante puede tener VARIOS repartidores y un
+// repartidor lleva varios restaurantes. Las peticiones de reparto del local
+// llegan a TODOS sus repartidores; el primero que acepta se queda el pedido
+// (queda registrado en Delivery.driverId para la liquidación).
+model RestaurantDriver {
+  restaurantId String
+  driverId     String
+  assignedAt   DateTime   @default(now())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  driver       Driver     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@id([restaurantId, driverId])
+  @@index([driverId])
 }
 
 model Lead {
@@ -91,6 +103,26 @@ model Delivery {
   rejectedAt   DateTime?
   createdAt    DateTime   @default(now())
 
+  // Nombre/anotación del pedido que el restaurante puede añadir al solicitar
+  // (p. ej. el nombre del cliente) — el repartidor lo ve y puede completarlo
+  // al recoger.
+  customerName String?
+
+  // Repartidor que ACEPTÓ el reparto (el primero que pulsa; los demás quedan
+  // fuera). Se usa para la liquidación por repartidor de cada local.
+  driverId     String?
+  driver       Driver?    @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  // Datos de la entrega, rellenados por el repartidor al recoger el pedido.
+  // La tarifa se calcula con la distancia desde el restaurante a esta
+  // dirección (ver src/lib/fees.ts) y queda guardada junto al pedido.
+  dropoffAddress String?
+  dropoffLat     Float?
+  dropoffLng     Float?
+  distanceKm     Float?
+  fee            Float?
+
   @@index([restaurantId])
   @@index([status])
+  @@index([driverId])
 }
