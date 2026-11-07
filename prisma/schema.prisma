@@ -98,6 +98,15 @@ model PushSubscription {
   @@index([role, userId])
 }
 
+// Ajustes globales de la plataforma (clave-valor). Por ahora solo guarda la
+// comisión por reparto que se lleva el admin: el resto de usuarios ven la
+// tarifa ya descontada (fee - commission), el admin ve la tarifa real.
+model Setting {
+  key       String   @id
+  value     Float
+  updatedAt DateTime @updatedAt
+}
+
 model Delivery {
   id           String     @id @default(cuid())
   restaurantId String

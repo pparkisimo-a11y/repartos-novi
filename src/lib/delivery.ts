@@ -1,3 +1,5 @@
+import { applyCommission } from '@/lib/settings'
+
 export type DeliveryStatus =
   | 'PENDING'
   | 'ACCEPTED'
@@ -58,6 +60,8 @@ export interface DeliveryDTO {
   feeBaseEur: number
   feeThresholdKm: number
   feePerExtraKmEur: number
+  /** Comisión de la plataforma que se descuenta de la tarifa para non-admin. */
+  commissionEur: number
 }
 
 /** Shape devuelto por Prisma al incluir restaurante (+repartores) y repartidor. */
@@ -92,8 +96,17 @@ interface DeliveryWithRestaurant {
  * Serializador central compartido por todas las rutas de deliveries.
  * `includeLocation` oculta las coordenadas exactas a los restaurantes
  * (ya las conocen).
+ *
+ * `commissionEur` (para non-admin) descuenta la comisión de la plataforma de
+ * la tarifa mostrada: repartidores y restaurantes ven el importe neto, el
+ * admin ve la tarifa real (se llama sin comisión). El campo commissionEur
+ * viaja siempre en el DTO para que la UI pueda previsualizar en vivo.
  */
-export function serializeDelivery(d: DeliveryWithRestaurant, includeLocation = true): DeliveryDTO {
+export function serializeDelivery(
+  d: DeliveryWithRestaurant,
+  includeLocation = true,
+  commissionEur = 0,
+): DeliveryDTO {
   const totalMs =
     d.requestedAt && d.deliveredAt
       ? new Date(d.deliveredAt).getTime() - new Date(d.requestedAt).getTime()
@@ -120,10 +133,11 @@ export function serializeDelivery(d: DeliveryWithRestaurant, includeLocation = t
     customerName: d.customerName ?? null,
     dropoffAddress: d.dropoffAddress ?? null,
     distanceKm: d.distanceKm ?? null,
-    fee: d.fee ?? null,
+    fee: applyCommission(d.fee, commissionEur),
     feeBaseEur: d.restaurant.feeBaseEur,
     feeThresholdKm: d.restaurant.feeThresholdKm,
     feePerExtraKmEur: d.restaurant.feePerExtraKmEur,
+    commissionEur,
   }
 }
 

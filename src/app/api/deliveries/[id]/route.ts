@@ -7,6 +7,7 @@ import { geocodeAddress } from '@/lib/geocode'
 import { feeForDistanceKm } from '@/lib/fees'
 import { deliveryDistanceKm } from '@/lib/routing'
 import { serializeDelivery, DELIVERY_RESTAURANT_INCLUDE, type DeliveryStatus } from '@/lib/delivery'
+import { getCommissionEur, applyCommission } from '@/lib/settings'
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   PENDING: ['ACCEPTED', 'REJECTED', 'CANCELLED'],
@@ -176,7 +177,9 @@ export async function PATCH(
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
 
-  const dto = serializeDelivery(updated)
+  // El admin ve la tarifa real; repartidor y restaurante ven el neto.
+  const commission = session.role === 'admin' ? 0 : await getCommissionEur()
+  const dto = serializeDelivery(updated, session.role !== 'restaurant', commission)
 
   // Notify the restaurant in real time
   await realtimeEmit({
@@ -203,7 +206,7 @@ export async function PATCH(
       PICKED_UP: {
         title: 'Pedido recogido',
         body: updated.fee != null
-          ? `${session.name} ha recogido el pedido. Tarifa: ${updated.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`
+          ? `${session.name} ha recogido el pedido. Tarifa: ${applyCommission(updated.fee, commission)!.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`
           : `${session.name} ha recogido el pedido.`,
       },
       DELIVERED: {

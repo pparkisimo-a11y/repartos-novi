@@ -8,6 +8,7 @@ import {
   DELIVERY_RESTAURANT_INCLUDE,
   isActiveStatus,
 } from '@/lib/delivery'
+import { getCommissionEur } from '@/lib/settings'
 
 export async function GET(req: Request) {
   const session = await getSessionFromRequest(req)
@@ -42,7 +43,9 @@ export async function GET(req: Request) {
       take: scope === 'active' ? 50 : 200,
       include: DELIVERY_RESTAURANT_INCLUDE,
     })
-    return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d)) })
+    // El admin ve la tarifa real (sin comisión); el repartidor ve el neto.
+    const commission = session.role === 'admin' ? 0 : await getCommissionEur()
+    return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d, true, commission)) })
   }
 
   // Restaurant: only own deliveries. Location already known to them.
@@ -55,7 +58,8 @@ export async function GET(req: Request) {
     take: scope === 'active' ? 20 : 200,
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
-  return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d, false)) })
+  const commission = await getCommissionEur()
+  return NextResponse.json({ deliveries: deliveries.map((d) => serializeDelivery(d, false, commission)) })
 }
 
 export async function POST(req: Request) {
@@ -106,7 +110,9 @@ export async function POST(req: Request) {
     include: DELIVERY_RESTAURANT_INCLUDE,
   })
 
-  const dto = serializeDelivery(delivery)
+  // El restaurante ve la tarifa neta (con comisión descuentada)
+  const commission = await getCommissionEur()
+  const dto = serializeDelivery(delivery, false, commission)
 
   // Notify all drivers; each client beeps only when the delivery is routed to
   // them (payload.assignedDriverIds) and silently refreshes otherwise.

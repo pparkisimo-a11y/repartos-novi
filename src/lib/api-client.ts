@@ -286,6 +286,15 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Admin platform settings (commission per delivery)
+  adminGetSettings: () =>
+    request<{ commissionEur: number }>('/api/admin/settings'),
+  adminSetCommission: (commissionEur: number) =>
+    request<{ commissionEur: number }>('/api/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ commissionEur }),
+    }),
+
   // Public contact form (leads)
   submitLead: (data: {
     restaurantName: string

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Receipt,
   Store,
@@ -10,6 +10,7 @@ import {
   Package,
   Loader2,
   Info,
+  Settings,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -19,7 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { api } from '@/lib/api-client'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { toast } from 'sonner'
+import { api, ApiError } from '@/lib/api-client'
 import { formatEur, feeExplanation } from '@/lib/fees'
 
 /** Últimos N meses como opciones YYYY-MM (más reciente primero). */
@@ -58,6 +63,8 @@ export function BillingView() {
 
   return (
     <div className="space-y-6">
+      <CommissionCard />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold">Liquidación</h2>
@@ -206,5 +213,122 @@ export function BillingView() {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Comisión de la plataforma: cantidad fija que el admin descuenta de cada
+ * reparto. El admin ve la tarifa real; repartidores y restaurantes ven la
+ * tarifa ya descontada (lo que cobran / lo que pagan).
+ */
+function CommissionCard() {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [value, setValue] = useState('')
+
+  const { data } = useQuery({
+    queryKey: ['admin', 'settings'],
+    queryFn: () => api.adminGetSettings(),
+  })
+  const commissionEur = data?.commissionEur ?? 0
+
+  function startEdit() {
+    setValue(String(commissionEur))
+    setEditing(true)
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    const n = Number(value.replace(',', '.'))
+    if (!Number.isFinite(n) || n < 0 || n > 50) {
+      toast.error('La comisión debe ser un número entre 0 y 50 €')
+      return
+    }
+    setSaving(true)
+    try {
+      await api.adminSetCommission(n)
+      toast.success('Comisión actualizada', {
+        description:
+          n > 0
+            ? `Se descuentan ${formatEur(n)} de cada reparto para repartidores y restaurantes.`
+            : 'Comisión desactivada: todos ven la tarifa real.',
+      })
+      qc.invalidateQueries({ queryKey: ['admin', 'settings'] })
+      // Los repartos en curso también cambian (la tarifa neta depende de la comisión)
+      qc.invalidateQueries({ queryKey: ['deliveries'] })
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="border-primary/30 bg-primary/5 shadow-sm">
+      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary sm:h-12 sm:w-12">
+            <Settings className="h-5 w-5 sm:h-6 sm:w-6" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm">
+              Comisión de la plataforma
+            </p>
+            {editing ? (
+              <form onSubmit={handleSave} className="mt-1 flex items-center gap-2">
+                <Input
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  inputMode="decimal"
+                  className="h-9 w-24"
+                  autoFocus
+                />
+                <span className="text-sm text-muted-foreground">€ por reparto</span>
+              </form>
+            ) : (
+              <p className="text-xl font-bold leading-tight tabular-nums sm:text-2xl">
+                {formatEur(commissionEur)}
+                <span className="ml-1.5 text-sm font-normal text-muted-foreground">por reparto</span>
+              </p>
+            )}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Se descuenta de la tarifa que ven repartidores y restaurantes. El
+              admin siempre ve la tarifa real.
+            </p>
+          </div>
+        </div>
+        {editing ? (
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form=""
+              size="sm"
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-primary text-white hover:bg-primary/90"
+            >
+              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Guardar
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={startEdit}>
+            <Settings className="mr-1.5 h-3.5 w-3.5" />
+            Cambiar
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   )
 }
