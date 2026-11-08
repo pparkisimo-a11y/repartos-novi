@@ -1,7 +1,19 @@
 'use client'
 
-import { MapPin, Navigation } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, MapPin, Navigation } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  MapAppChooserDialog,
+  navAppName,
+  navAppsForPlatform,
+  openNavApp,
+  renderNavAppIcon,
+  setPreferredNavApp,
+  usePlatform,
+  useStoredNavApp,
+  type NavAppId,
+} from './nav-apps'
 
 function bbox(lat: number, lng: number, delta = 0.008) {
   const minLat = (lat - delta).toFixed(6)
@@ -29,7 +41,31 @@ export function MapView({
     lat,
     lng,
   )}&layer=mapnik&marker=${lat.toFixed(6)},${lng.toFixed(6)}`
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+
+  const [chooserOpen, setChooserOpen] = useState(false)
+  // Elección manual en esta sesión: { v } = app elegida (null = preguntar
+  // siempre). Se combina con la preferencia guardada en el dispositivo.
+  const [choice, setChoice] = useState<{ v: NavAppId | null } | null>(null)
+  const platform = usePlatform()
+  const storedPref = useStoredNavApp()
+
+  const pref = choice ? choice.v : storedPref
+
+  // La app preferida debe existir en esta plataforma (Apple Maps → solo iOS)
+  const effectivePref =
+    pref && navAppsForPlatform(platform).some((a) => a.id === pref) ? pref : null
+
+  /** «Cómo llegar»: abre la app preferida o pregunta si no hay ninguna. */
+  function handleNavigate() {
+    if (effectivePref) openNavApp(effectivePref, lat, lng)
+    else setChooserOpen(true)
+  }
+
+  /** Elección desde el diálogo: recordar (o no) y sincronizar el botón. */
+  function handleChoose(app: NavAppId, remember: boolean) {
+    setPreferredNavApp(remember ? app : null)
+    setChoice({ v: remember ? app : null })
+  }
 
   return (
     <div className={`overflow-hidden rounded-xl border border-border bg-card ${className ?? ''}`}>
@@ -55,13 +91,49 @@ export function MapView({
             {lat.toFixed(5)}, {lng.toFixed(5)}
           </p>
         </div>
-        <Button asChild size="sm">
-          <a href={directionsUrl} target="_blank" rel="noopener noreferrer">
+        {/* Botón partido: acción principal + selector de app (▾ o icono de la
+            app elegida). Toca «Cómo llegar» para navegar; toca ▾ para cambiar
+            de app (Google Maps, Waze, Apple Maps). */}
+        <div className="flex shrink-0">
+          <Button
+            size="sm"
+            className="rounded-r-none pr-3"
+            onClick={handleNavigate}
+          >
             <Navigation className="mr-1.5 h-4 w-4" />
             Cómo llegar
-          </a>
-        </Button>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-l-none border-l-0 px-2.5"
+            onClick={() => setChooserOpen(true)}
+            aria-label={
+              effectivePref
+                ? `App de navegación: ${navAppName(effectivePref)}. Toca para cambiar`
+                : 'Elegir app de navegación'
+            }
+            title={
+              effectivePref
+                ? `App elegida: ${navAppName(effectivePref)} — toca para cambiar`
+                : 'Elegir app de navegación'
+            }
+          >
+            {renderNavAppIcon(effectivePref, 'h-4 w-4') ?? (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </div>
+
+      <MapAppChooserDialog
+        open={chooserOpen}
+        onOpenChange={setChooserOpen}
+        lat={lat}
+        lng={lng}
+        label={label}
+        onChoose={handleChoose}
+      />
     </div>
   )
 }

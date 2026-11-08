@@ -21,7 +21,6 @@ import {
   Bell,
   User,
   Euro,
-  Navigation,
   Search,
   Shield,
 } from 'lucide-react'
@@ -796,9 +795,6 @@ function OrderCard({
     : delivery.status === 'ACCEPTED'
       ? Bike
       : PackageCheck
-  const mapsUrl = delivery.dropoffAddress
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(delivery.dropoffAddress)}`
-    : null
 
   // Resumen siempre visible con la tarjeta plegada: a dónde ir y de quién es.
   // ACCEPTED: "Recoger en Kebab, pedido para Ana" — el repartidor sabe a qué
