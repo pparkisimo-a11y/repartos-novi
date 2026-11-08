@@ -92,13 +92,13 @@ export function DriverDashboard({
   const { data, isLoading } = useQuery({
     queryKey: ['deliveries', 'driver', 'active'],
     queryFn: () => api.listDeliveries('active', 'mine'),
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   })
 
   const { data: recentData } = useQuery({
     queryKey: ['deliveries', 'driver', 'recent'],
     queryFn: () => api.listDeliveries(undefined, 'mine'),
-    refetchInterval: 30000,
+    refetchInterval: 10000,
   })
 
   function playBeep() {
@@ -143,9 +143,13 @@ export function DriverDashboard({
             description: `${d.restaurantName} solicita repartidor${d.customerName ? ` — ${d.customerName}` : ''}`,
             duration: 8000,
           })
-          // La notificación de pantalla la muestra el service worker (push):
-          // en iOS no se puede mostrar desde la página.
         }
+      }
+      // Súper repartidor: refrescar todo para que vea los pedidos de otros
+      // en la pestaña de supervisión sin esperar al refetch
+      if (user.isSuperDriver) {
+        qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'active'] })
+        qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       }
     }
     const onUpdate = (payload: unknown) => {
@@ -162,6 +166,11 @@ export function DriverDashboard({
         qc.setQueryData(['deliveries', 'driver', 'active'], patch)
         qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       }
+      // Súper repartidor: refrescar para que la supervisión se actualice
+      if (user.isSuperDriver) {
+        qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'active'] })
+        qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
+      }
       if (d.status === 'CANCELLED' && (d.assignedDriverIds || []).includes(user.id)) {
         toast.info('Solicitud cancelada', { description: `${d.restaurantName} canceló el reparto.` })
       }
@@ -172,7 +181,7 @@ export function DriverDashboard({
       off1()
       off2()
     }
-  }, [subscribe, qc, available, user.id])
+  }, [subscribe, qc, available, user.id, user.isSuperDriver])
 
   const deliveries = data?.deliveries || []
   // Mis pedidos = los de mis restaurantes (isMine). El resto van a la sección
