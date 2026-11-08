@@ -84,7 +84,7 @@ export function CollapsibleOrderCard({
     </>
   )
 
-  const headerCls = `flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors duration-300 ${
+  const headerCls = `flex w-full items-center justify-between gap-2 overflow-hidden px-4 py-3.5 text-left transition-colors duration-300 sm:gap-3 sm:px-5 ${
     expanded ? 'bg-primary text-white' : 'bg-card text-foreground hover:bg-muted/40'
   }`
 
@@ -117,7 +117,7 @@ export function CollapsibleOrderCard({
           Queda montado (pero inerte al plegar) para que la animación funcione
           también al contraer. */}
       <div
-        className={`grid transition-all duration-300 ease-in-out ${
+        className={`grid overflow-hidden transition-all duration-300 ease-in-out ${
           expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
         }`}
       >

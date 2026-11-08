@@ -920,7 +920,7 @@ function OrderCardBody({
       )}
       <div className="grid gap-5 sm:grid-cols-2">
         {/* Timeline */}
-        <div className="min-w-0">
+        <div className="min-w-0 overflow-hidden">
           <div className="flex gap-3">
             {/* line + nodes */}
             <div className="flex flex-col items-center">
@@ -971,7 +971,7 @@ function OrderCardBody({
           </div>
 
           {/* Timestamps row */}
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          <div className="mt-4 grid grid-cols-3 gap-1.5 overflow-hidden text-center sm:gap-2">
             <Stat label="Solicitado" value={formatTime(delivery.requestedAt)} />
             <Stat label="Aceptado" value={formatTime(delivery.acceptedAt)} />
             <Stat label="Recogido" value={formatTime(delivery.pickedUpAt)} />
@@ -979,6 +979,7 @@ function OrderCardBody({
         </div>
 
         {/* Map (only once accepted/in progress) */}
+        <div className="min-w-0">
         {!isPending ? (
           <MapView
             lat={delivery.lat}
@@ -989,11 +990,12 @@ function OrderCardBody({
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
             <MapPin className="mb-2 h-8 w-8 text-muted-foreground/50" />
             <p className="text-sm font-medium">Ubicación disponible al aceptar</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 break-words text-xs text-muted-foreground">
               {delivery.restaurantName} · {delivery.restaurantAddress}
             </p>
           </div>
         )}
+        </div>
       </div>
 
       {/* Actions — Aceptar/Rechazar lado a lado y con buen tamaño táctil */}
@@ -1253,11 +1255,11 @@ function PickupDialog({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 px-2 py-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-muted/30 px-1.5 py-1.5 sm:px-2">
+      <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="text-sm font-semibold">{value}</p>
+      <p className="truncate text-xs font-semibold sm:text-sm">{value}</p>
     </div>
   )
 }
