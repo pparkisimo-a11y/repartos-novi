@@ -191,8 +191,8 @@ export function ManageRestaurants() {
                       <Store className="h-5 w-5" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{r.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
+                      <p className="truncate font-semibold" title={r.name}>{r.name}</p>
+                      <p className="truncate text-xs text-muted-foreground" title={r.address}>
                         <MapPin className="mr-1 inline h-3 w-3" />
                         {r.address}
                       </p>

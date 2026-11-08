@@ -378,7 +378,7 @@ function RequestCard({
           <Bell className="h-4 w-4" />
           Solicitar repartidor
         </div>
-        <span className="text-sm text-white/80">
+        <span className="text-sm font-medium text-white">
           {disabled ? disabledText : 'Listo para enviar'}
         </span>
       </div>

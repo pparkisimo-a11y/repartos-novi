@@ -8,6 +8,8 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  LocateFixed,
+  MapPin,
   MessageSquare,
   Phone,
   Printer,
@@ -33,6 +35,8 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { api, ApiError, type Lead } from '@/lib/api-client'
+import type { AddressSuggestion } from '@/lib/types'
+import { AddressAutocomplete } from '@/components/driver/address-autocomplete'
 import { formatDateTime, relativeTime } from '@/lib/format'
 import { useNow } from '@/hooks/use-now'
 
@@ -537,11 +541,14 @@ function ConvertLeadDialog({
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [address, setAddress] = useState('')
-  const [lat, setLat] = useState('40.4168')
-  const [lng, setLng] = useState('-3.7038')
+  const [selected, setSelected] = useState<AddressSuggestion | null>(null)
+  const [manualCoords, setManualCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [locating, setLocating] = useState(false)
   const [assignedDriverIds, setAssignedDriverIds] = useState<string[]>(
     currentDriverId ? [currentDriverId] : [],
   )
+
+  const coords = selected ? { lat: selected.lat, lng: selected.lng } : manualCoords
 
   const { data: driversData } = useQuery({
     queryKey: ['admin', 'drivers'],
@@ -562,6 +569,31 @@ function ConvertLeadDialog({
     )
   }
 
+  function useMyLocation() {
+    if (!navigator.geolocation) {
+      toast.error('Geolocalización no disponible')
+      return
+    }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setManualCoords({
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+        })
+        setLocating(false)
+        toast.success('Ubicación detectada', {
+          description: 'Coordenadas fijadas. Escribe la dirección del local arriba.',
+        })
+      },
+      () => {
+        setLocating(false)
+        toast.error('No se pudo obtener la ubicación')
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
+
   function prefill(t: Lead | null) {
     if (!t) return
     setName(t.restaurantName)
@@ -576,23 +608,27 @@ function ConvertLeadDialog({
       Math.random().toString(36).slice(2, 6) + Math.floor(Math.random() * 90 + 10),
     )
     setAddress('')
-    setLat('40.4168')
-    setLng('-3.7038')
+    setSelected(null)
+    setManualCoords(null)
     setAssignedDriverIds(currentDriverId ? [currentDriverId] : [])
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!target) return
+    if (!coords) {
+      toast.error('Selecciona la dirección del local en el desplegable')
+      return
+    }
     setLoading(true)
     try {
       const res = await api.adminConvertLead(target.id, {
         name,
         username,
         password,
-        address,
-        lat: Number(lat),
-        lng: Number(lng),
+        address: selected ? selected.label : address,
+        lat: coords.lat,
+        lng: coords.lng,
         assignedDriverIds,
       })
       toast.success('Restaurante creado', {
@@ -661,13 +697,21 @@ function ConvertLeadDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="cv-address">Dirección del local</Label>
-            <Input
+            <AddressAutocomplete
               id="cv-address"
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Calle, número, ciudad"
-              required
+              onChange={setAddress}
+              onSelect={(s) => {
+                setSelected(s)
+                setManualCoords(null)
+              }}
+              onSelectionCleared={() => setSelected(null)}
+              placeholder="Calle, número, ciudad — salen sugerencias"
             />
+            <p className="text-xs text-muted-foreground">
+              Escribe la calle y número y elige la dirección del desplegable:
+              se rellena sola con la posición exacta en el mapa.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Repartidores que lo llevarán</Label>
@@ -708,27 +752,48 @@ function ConvertLeadDialog({
               primero que acepte se llevará el pedido.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="cv-lat">Latitud</Label>
-              <Input
-                id="cv-lat"
-                value={lat}
-                onChange={(e) => setLat(e.target.value)}
-                inputMode="decimal"
-                required
-              />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5" />
+                Posición en el mapa
+              </Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={useMyLocation}
+                disabled={locating}
+              >
+                {locating ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LocateFixed className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Mi ubicación
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cv-lng">Longitud</Label>
-              <Input
-                id="cv-lng"
-                value={lng}
-                onChange={(e) => setLng(e.target.value)}
-                inputMode="decimal"
-                required
-              />
-            </div>
+            {coords ? (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+                <MapPin className="h-4 w-4 shrink-0" />
+                <span className="font-mono text-xs">
+                  {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                </span>
+                {selected ? (
+                  <span className="ml-auto text-xs font-medium">✓ Dirección seleccionada</span>
+                ) : (
+                  <span className="ml-auto text-xs font-medium">Ubicación GPS</span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 shrink-0" />
+                <span>
+                  Selecciona una dirección del desplegable de arriba, o pulsa
+                  «Mi ubicación» si estás en el local.
+                </span>
+              </div>
+            )}
           </div>
         </form>
         <DialogFooter className="gap-2">

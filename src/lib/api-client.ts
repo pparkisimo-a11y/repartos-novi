@@ -95,21 +95,43 @@ export interface BillingDriverRow {
   driverId: string | null
   driverName: string
   count: number
+  /** Bruto generado por el repartidor (tarifa real). */
   totalEur: number
+  /** Comisión que se queda la plataforma. */
+  commissionEur: number
+  /** Lo que va a recibir el repartidor (bruto - comisión). */
+  netEur: number
 }
 
 export interface BillingRestaurantRow {
   restaurantId: string
   restaurantName: string
   count: number
+  /** Bruto total del local (lo que paga). */
   totalEur: number
+  /** Comisión de la plataforma sobre los repartos del local. */
+  commissionEur: number
+  /** Neto que reciben entre todos los repartidores del local. */
+  netEur: number
   byDriver: BillingDriverRow[]
 }
 
 export interface BillingResponse {
   month: string
-  totals: { count: number; totalEur: number }
+  /** Comisión (%) global configurada. */
+  commissionPct: number
+  totals: {
+    count: number
+    /** Bruto total del mes. */
+    totalEur: number
+    /** Ingresos de la app por comisiones (mes). */
+    commissionEur: number
+    /** Total a repartidores (mes). */
+    netEur: number
+  }
   restaurants: BillingRestaurantRow[]
+  /** Resumen global por repartidor (todos los locales juntos). */
+  byDriver: BillingDriverRow[]
 }
 
 export interface Lead {

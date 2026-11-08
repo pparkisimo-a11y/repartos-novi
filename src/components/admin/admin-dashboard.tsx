@@ -18,6 +18,8 @@ import {
   Loader2,
   Inbox,
   Receipt,
+  PiggyBank,
+  Wallet,
 } from 'lucide-react'
 import { PushBell } from '@/components/pwa/push-bell'
 import { Card, CardContent } from '@/components/ui/card'
@@ -133,6 +135,15 @@ function ResumenView({
     refetchInterval: 60000,
   })
 
+  // Mes actual (UTC) para los KPIs de dinero — misma queryKey que BillingView
+  const now = new Date()
+  const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+  const { data: billingData } = useQuery({
+    queryKey: ['admin', 'billing', currentMonth],
+    queryFn: () => api.adminBilling(currentMonth),
+    refetchInterval: 60000,
+  })
+
   const totals = statsData?.totals
   const active = activeData?.deliveries || []
   const inProgress = active.filter((d) => ['ACCEPTED', 'PICKED_UP'].includes(d.status))
@@ -158,6 +169,18 @@ function ResumenView({
       tone: 'bg-amber-100 text-amber-600',
     },
     {
+      label: 'Comisión app (mes)',
+      value: billingData ? formatEur(billingData.totals.commissionEur) : '…',
+      icon: PiggyBank,
+      tone: 'bg-primary/10 text-primary',
+    },
+    {
+      label: 'A repartidores (mes)',
+      value: billingData ? formatEur(billingData.totals.netEur) : '…',
+      icon: Wallet,
+      tone: 'bg-amber-100 text-amber-600',
+    },
+    {
       label: 'Restaurantes',
       value: String(restaurantCount),
       icon: Store,
@@ -180,7 +203,7 @@ function ResumenView({
   return (
     <div className="space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         {kpis.map((k) => {
           const Icon = k.icon
           return (

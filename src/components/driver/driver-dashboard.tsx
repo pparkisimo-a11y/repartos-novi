@@ -564,7 +564,10 @@ function PedidosView({
                               </span>
                             )}
                           </p>
-                          <p className="truncate text-xs text-muted-foreground">
+                          <p
+                            className="truncate text-xs text-muted-foreground"
+                            title={`${d.restaurantName}${d.customerName ? ` — pedido para ${d.customerName}` : ''} · #${d.id.slice(-4).toUpperCase()}`}
+                          >
                             {d.restaurantName}
                             {d.customerName ? ` — pedido para ${d.customerName}` : ''} · #{d.id.slice(-4).toUpperCase()}
                           </p>
@@ -804,7 +807,10 @@ function OrderCard({
     delivery.status === 'ACCEPTED' ? (
       <>
         <Store className="h-4 w-4 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+        <span
+          className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
+          title={`Recoger en ${delivery.restaurantName}${delivery.customerName ? `, pedido para ${delivery.customerName}` : ''}`}
+        >
           Recoger en{' '}
           <strong className="text-foreground">{delivery.restaurantName}</strong>
           {delivery.customerName && (
@@ -818,7 +824,10 @@ function OrderCard({
     ) : (
       <>
         <MapPin className="h-4 w-4 shrink-0 text-violet-500" />
-        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+        <span
+          className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
+          title={`Entregar en ${delivery.dropoffAddress ?? 'dirección pendiente'}`}
+        >
           Entregar en{' '}
           {delivery.dropoffAddress ? (
             <strong className="text-foreground">{delivery.dropoffAddress}</strong>

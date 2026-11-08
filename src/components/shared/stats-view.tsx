@@ -154,14 +154,36 @@ export function StatsView() {
             </p>
           ) : (
             <div className="max-h-80 overflow-y-auto scrollbar-thin">
-              <table className="w-full text-xs sm:text-sm">
+              {/* Móvil: filas apiladas (sin scroll horizontal) */}
+              <div className="divide-y divide-border sm:hidden">
+                {byRestaurant.map((r) => (
+                  <div key={r.restaurantId} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="min-w-0 truncate text-sm font-medium">{r.restaurantName}</p>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums text-emerald-600">
+                        {formatEur(r.totalEur)}
+                      </p>
+                    </div>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                      <span>
+                        <span className="font-semibold text-foreground">{r.count}</span>{' '}
+                        {r.count === 1 ? 'servicio' : 'servicios'}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>media {formatDuration(r.avgMs)}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {/* Tablet/escritorio: tabla completa */}
+              <table className="hidden w-full text-xs sm:table sm:text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-3 font-semibold sm:px-5">Restaurante</th>
-                    <th className="px-3 py-3 text-right font-semibold sm:px-5">Servicios</th>
-                    <th className="px-3 py-3 text-right font-semibold sm:px-5">Ingresos</th>
-                    <th className="hidden px-3 py-3 text-right font-semibold sm:table-cell sm:px-5">Tiempo total</th>
-                    <th className="px-3 py-3 text-right font-semibold sm:px-5">Media</th>
+                    <th className="whitespace-nowrap px-3 py-3 text-right font-semibold sm:px-5">Servicios</th>
+                    <th className="whitespace-nowrap px-3 py-3 text-right font-semibold sm:px-5">Ingresos</th>
+                    <th className="hidden px-3 py-3 text-right font-semibold md:table-cell md:px-5">Tiempo total</th>
+                    <th className="whitespace-nowrap px-3 py-3 text-right font-semibold sm:px-5">Media</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -170,7 +192,7 @@ export function StatsView() {
                       <td className="max-w-[9rem] truncate px-3 py-3 font-medium sm:max-w-none sm:px-5">{r.restaurantName}</td>
                       <td className="px-3 py-3 text-right font-semibold sm:px-5">{r.count}</td>
                       <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-emerald-600 sm:px-5">{formatEur(r.totalEur)}</td>
-                      <td className="hidden whitespace-nowrap px-3 py-3 font-mono sm:table-cell sm:px-5">{formatDuration(r.totalMs)}</td>
+                      <td className="hidden whitespace-nowrap px-3 py-3 font-mono md:table-cell md:px-5">{formatDuration(r.totalMs)}</td>
                       <td className="whitespace-nowrap px-3 py-3 font-mono sm:px-5">{formatDuration(r.avgMs)}</td>
                     </tr>
                   ))}

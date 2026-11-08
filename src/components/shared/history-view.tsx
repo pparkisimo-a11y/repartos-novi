@@ -77,22 +77,22 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
         </Card>
       ) : (
         <Card className="overflow-hidden p-0 shadow-sm">
-          {/* Desktop table */}
-          <div className="hidden md:block">
-            <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+          {/* Escritorio XL: tabla completa (a partir de 1280px cabe sin cortar) */}
+          <div className="hidden xl:block">
+            <div className="max-h-[60vh] overflow-auto scrollbar-thin">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-5 py-3 font-semibold">Pedido</th>
-                    <th className="px-5 py-3 font-semibold">Restaurante</th>
-                    {scope === 'all' && <th className="px-5 py-3 font-semibold">Repartidor</th>}
-                    <th className="px-5 py-3 font-semibold">Cliente</th>
-                    <th className="px-5 py-3 font-semibold">Solicitado</th>
-                    <th className="px-5 py-3 font-semibold">Entregado</th>
-                    <th className="px-5 py-3 font-semibold">Tiempo total</th>
-                    <th className="px-5 py-3 font-semibold">Distancia</th>
-                    <th className="px-5 py-3 font-semibold">Tarifa</th>
-                    <th className="px-5 py-3 font-semibold">Estado</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Pedido</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Restaurante</th>
+                    {scope === 'all' && <th className="whitespace-nowrap px-3 py-3 font-semibold">Repartidor</th>}
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Cliente</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Solicitado</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Entregado</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Tiempo total</th>
+                    <th className="hidden whitespace-nowrap px-3 py-3 font-semibold 2xl:table-cell">Distancia</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Tarifa</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Estado</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -101,26 +101,26 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
                       key={d.id}
                       className="border-t border-border hover:bg-muted/30"
                     >
-                      <td className="px-5 py-3 font-mono text-xs font-semibold text-primary">
+                      <td className="whitespace-nowrap px-3 py-3 font-mono text-xs font-semibold text-primary">
                         #{d.id.slice(-6).toUpperCase()}
                       </td>
-                      <td className="px-5 py-3 font-medium">{d.restaurantName}</td>
+                      <td className="max-w-[10rem] truncate px-3 py-3 font-medium" title={d.restaurantName}>{d.restaurantName}</td>
                       {scope === 'all' && (
-                        <td className="px-5 py-3 text-muted-foreground">
+                        <td className="max-w-[8rem] truncate px-3 py-3 text-muted-foreground" title={d.driverName ?? ''}>
                           {d.driverName || '—'}
                         </td>
                       )}
-                      <td className="max-w-[10rem] truncate px-5 py-3 text-muted-foreground">
+                      <td className="max-w-[8rem] truncate px-3 py-3 text-muted-foreground" title={d.customerName ?? ''}>
                         {d.customerName || '—'}
                       </td>
-                      <td className="px-5 py-3 text-muted-foreground">{formatDateTime(d.requestedAt)}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.deliveredAt)}</td>
-                      <td className="px-5 py-3 font-mono font-semibold">{formatDuration(d.totalMs)}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{formatKm(d.distanceKm)}</td>
-                      <td className="px-5 py-3 font-semibold tabular-nums text-emerald-600">
+                      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{formatDateTime(d.requestedAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{formatTime(d.deliveredAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 font-mono font-semibold">{formatDuration(d.totalMs)}</td>
+                      <td className="hidden whitespace-nowrap px-3 py-3 text-muted-foreground 2xl:table-cell">{formatKm(d.distanceKm)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 font-semibold tabular-nums text-emerald-600">
                         {formatEur(d.fee)}
                       </td>
-                      <td className="px-5 py-3"><StatusBadge status={d.status} showDot={false} /></td>
+                      <td className="whitespace-nowrap px-3 py-3"><StatusBadge status={d.status} showDot={false} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -128,8 +128,8 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
             </div>
           </div>
 
-          {/* Mobile cards */}
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto p-3 scrollbar-thin md:hidden">
+          {/* Móvil y tablet: tarjetas compactas (sin scroll horizontal) */}
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto p-3 scrollbar-thin xl:hidden">
             {filtered.map((d) => (
               <div
                 key={d.id}
@@ -153,7 +153,7 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
                     <span className="col-span-2">Cliente: {d.customerName}</span>
                   )}
                   {d.dropoffAddress && (
-                    <span className="col-span-2 truncate">
+                    <span className="col-span-2 truncate" title={d.dropoffAddress}>
                       Entrega en: {d.dropoffAddress}
                     </span>
                   )}

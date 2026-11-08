@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireAdminFromRequest } from '@/lib/session'
+import { getCommissionPct, applyCommission } from '@/lib/settings'
 
 /**
  * Liquidación mensual para el administrador:
  *
- *   - Total de repartos y de tarifa de CADA local
- *   - Si un local ha tenido varios repartidores: total de cada uno
- *   - Suma total de todos los repartos del local (lo que debe el local)
+ *   - Total de repartos y tarifa de CADA local (bruto)
+ *   - Desglose por repartidor: lo que ha GENERADO (tarifa real), la COMISIÓN
+ *     que se queda la plataforma y lo que VA A RECIBIR (bruto - comisión)
+ *   - Comisión total del mes = ingresos de la app
+ *   - Resumen global por repartidor (todos los locales juntos)
  *
  * Se calcula sobre los repartos ENTREGADOS (status DELIVERED) usando la
- * tarifa guardada en cada pedido al recogerlo (Delivery.fee).
+ * tarifa guardada en cada pedido al recogerlo (Delivery.fee). El neto se
+ * calcula reparto a reparto con applyCommission para coincidir EXACTAMENTE
+ * con lo que el repartidor ve en su panel.
  */
 export async function GET(req: Request) {
   try {
@@ -37,6 +42,8 @@ export async function GET(req: Request) {
     const from = new Date(Date.UTC(year, month - 1, 1))
     const to = new Date(Date.UTC(year, month, 1))
 
+    const commissionPct = await getCommissionPct()
+
     const deliveries = await db.delivery.findMany({
       where: { status: 'DELIVERED', deliveredAt: { gte: from, lt: to } },
       include: {
@@ -48,19 +55,45 @@ export async function GET(req: Request) {
 
     const round2 = (n: number) => Math.round(n * 100) / 100
 
-    // Agrupar por restaurante → por repartidor
-    const restaurantsMap = new Map<
-      string,
-      {
-        restaurantId: string
-        restaurantName: string
-        count: number
-        totalEur: number
-        byDriver: Map<string, { driverId: string | null; driverName: string; count: number; totalEur: number }>
-      }
-    >()
+    interface DriverAgg {
+      driverId: string | null
+      driverName: string
+      count: number
+      totalEur: number // bruto generado
+      commissionEur: number // comisión de la plataforma
+      netEur: number // lo que recibe el repartidor
+    }
+    interface RestaurantAgg {
+      restaurantId: string
+      restaurantName: string
+      count: number
+      totalEur: number
+      commissionEur: number
+      netEur: number
+      byDriver: Map<string, DriverAgg>
+    }
+
+    const restaurantsMap = new Map<string, RestaurantAgg>()
+    const globalDriversMap = new Map<string, DriverAgg>()
+
+    let totalCount = 0
+    let grandTotalEur = 0
+    let grandCommissionEur = 0
+    let grandNetEur = 0
 
     for (const d of deliveries) {
+      const gross = d.fee ?? 0
+      // Mismo cálculo que ve el repartidor en su panel (redondeo por reparto)
+      const net = applyCommission(d.fee, commissionPct) ?? 0
+      const commission = round2(gross - net)
+
+      // --- Agregado global ---
+      totalCount += 1
+      grandTotalEur += gross
+      grandCommissionEur += commission
+      grandNetEur += net
+
+      // --- Por restaurante ---
       const rKey = d.restaurant.id
       const entry =
         restaurantsMap.get(rKey) ||
@@ -69,11 +102,16 @@ export async function GET(req: Request) {
           restaurantName: d.restaurant.name,
           count: 0,
           totalEur: 0,
+          commissionEur: 0,
+          netEur: 0,
           byDriver: new Map(),
         }
       entry.count += 1
-      entry.totalEur += d.fee ?? 0
+      entry.totalEur += gross
+      entry.commissionEur += commission
+      entry.netEur += net
 
+      // --- Por repartidor dentro del restaurante ---
       const dKey = d.driverId ?? '__none__'
       const driverEntry =
         entry.byDriver.get(dKey) ||
@@ -82,13 +120,36 @@ export async function GET(req: Request) {
           driverName: d.driver?.name ?? 'Sin repartidor',
           count: 0,
           totalEur: 0,
+          commissionEur: 0,
+          netEur: 0,
         }
       driverEntry.count += 1
-      driverEntry.totalEur += d.fee ?? 0
+      driverEntry.totalEur += gross
+      driverEntry.commissionEur += commission
+      driverEntry.netEur += net
       entry.byDriver.set(dKey, driverEntry)
+
+      // --- Resumen global por repartidor (todos los locales) ---
+      const globalEntry =
+        globalDriversMap.get(dKey) ||
+        {
+          driverId: d.driverId,
+          driverName: d.driver?.name ?? 'Sin repartidor',
+          count: 0,
+          totalEur: 0,
+          commissionEur: 0,
+          netEur: 0,
+        }
+      globalEntry.count += 1
+      globalEntry.totalEur += gross
+      globalEntry.commissionEur += commission
+      globalEntry.netEur += net
+      globalDriversMap.set(dKey, globalEntry)
 
       restaurantsMap.set(rKey, entry)
     }
+
+    const sortDrivers = (a: DriverAgg, b: DriverAgg) => b.netEur - a.netEur || b.totalEur - a.totalEur
 
     const restaurants = Array.from(restaurantsMap.values())
       .map((r) => ({
@@ -96,19 +157,39 @@ export async function GET(req: Request) {
         restaurantName: r.restaurantName,
         count: r.count,
         totalEur: round2(r.totalEur),
+        commissionEur: round2(r.commissionEur),
+        netEur: round2(r.netEur),
         byDriver: Array.from(r.byDriver.values())
-          .map((dr) => ({ ...dr, totalEur: round2(dr.totalEur) }))
-          .sort((a, b) => b.totalEur - a.totalEur),
+          .map((dr) => ({
+            ...dr,
+            totalEur: round2(dr.totalEur),
+            commissionEur: round2(dr.commissionEur),
+            netEur: round2(dr.netEur),
+          }))
+          .sort(sortDrivers),
       }))
       .sort((a, b) => b.totalEur - a.totalEur)
 
-    const totalCount = deliveries.length
-    const grandTotalEur = round2(deliveries.reduce((acc, d) => acc + (d.fee ?? 0), 0))
+    const byDriver = Array.from(globalDriversMap.values())
+      .map((dr) => ({
+        ...dr,
+        totalEur: round2(dr.totalEur),
+        commissionEur: round2(dr.commissionEur),
+        netEur: round2(dr.netEur),
+      }))
+      .sort(sortDrivers)
 
     return NextResponse.json({
       month: monthKey,
-      totals: { count: totalCount, totalEur: grandTotalEur },
+      commissionPct,
+      totals: {
+        count: totalCount,
+        totalEur: round2(grandTotalEur),
+        commissionEur: round2(grandCommissionEur),
+        netEur: round2(grandNetEur),
+      },
       restaurants,
+      byDriver,
     })
   } catch (err) {
     const status = (err as Error & { status?: number }).status ?? 500
