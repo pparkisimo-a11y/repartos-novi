@@ -235,61 +235,28 @@ export function RestaurantDashboard({
       header={header}
     >
       {view === 'inicio' && (
-        <div className="space-y-6">
-          {/* Indicadores de configuración: sin horario o sin repartidores */}
-          {!user.hasDrivers && (
-            <Card className="border-rose-300 bg-rose-50">
-              <CardContent className="flex items-start gap-3 p-4 text-rose-800">
-                <Bike className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
-                <div className="text-sm">
-                  <p className="font-semibold">Sin repartidores asignados</p>
-                  <p className="mt-0.5">
-                    Tu local todavía no tiene repartidores. Contacta con el
-                    administrador para que te asigne repartidores y poder pedir
-                    reparto.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {user.hasDrivers && !isOpen && schedule.days.length === 0 && (
-            <Card className="border-rose-300 bg-rose-50">
-              <CardContent className="flex items-start gap-3 p-4 text-rose-800">
-                <Clock className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
-                <div className="text-sm">
-                  <p className="font-semibold">Sin horario configurado</p>
-                  <p className="mt-0.5">
-                    Tu local todavía no tiene un horario de reparto negociado.
-                    Contacta con el administrador para fijar los días y horas en
-                    los que puedes pedir reparto.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {user.hasDrivers && !isOpen && schedule.days.length > 0 && (
-            <Card className="border-amber-300 bg-amber-50">
-              <CardContent className="flex items-start gap-3 p-4 text-amber-800">
-                <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
-                <div className="text-sm">
-                  <p className="font-semibold">Fuera de horario</p>
-                  <p className="mt-0.5">
-                    Tu horario de reparto es <strong>{scheduleLabel(schedule)}</strong>.
-                    Vuelve a intentarlo dentro de ese horario para pedir repartidor.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {user.hasDrivers && isOpen && schedule.days.length > 0 && (
-            <Card className="border-emerald-200 bg-emerald-50">
-              <CardContent className="flex items-center gap-3 p-3 text-emerald-700">
-                <Clock className="h-4 w-4 shrink-0" />
-                <p className="text-sm font-medium">
-                  Abierto · {scheduleLabel(schedule)}
-                </p>
-              </CardContent>
-            </Card>
+        <div className="space-y-4">
+          {/* Estado del local: una sola línea compacta */}
+          {!user.hasDrivers ? (
+            <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <Bike className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Sin repartidores asignados — contacta con el administrador</span>
+            </div>
+          ) : schedule.days.length === 0 ? (
+            <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <Clock className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Sin horario configurado — contacta con el administrador</span>
+            </div>
+          ) : !isOpen ? (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              <Clock className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Fuera de horario · {scheduleLabel(schedule)}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              <Clock className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Abierto · {scheduleLabel(schedule)}</span>
+            </div>
           )}
           {isLoading ? (
             <Card className="flex h-64 items-center justify-center">
