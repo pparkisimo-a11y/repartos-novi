@@ -54,6 +54,9 @@ export const viewport: Viewport = {
   userScalable: false,
   // Contenido a pantalla completa en iPhones con notch / Dynamic Island
   viewportFit: "cover",
+  // Android/Chrome: al abrir el teclado el viewport se reajusta (en vez de
+  // quedar el teclado encima), así los diálogos fijos no quedan tapados.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({

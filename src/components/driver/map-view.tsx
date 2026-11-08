@@ -73,7 +73,7 @@ export function MapView({
         <iframe
           title="Ubicación del restaurante"
           src={src}
-          className={compact ? 'h-36 w-full' : 'h-52 w-full sm:h-56'}
+          className={compact ? 'h-32 w-full' : 'h-52 w-full sm:h-56'}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
         />

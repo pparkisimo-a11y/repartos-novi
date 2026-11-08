@@ -128,7 +128,15 @@ export function AddressAutocomplete({
     setItems([])
     setSearched('')
     if (!same) onSelect(s)
-    inputRef.current?.focus()
+    // En móvil cerramos el teclado (blur) al elegir una dirección: el
+    // diálogo crece con el mapa y la tarifa, y con el teclado abierto iOS
+    // desplaza el diálogo fijo hasta dejarlo medio fuera de pantalla.
+    // En escritorio mantenemos el foco para seguir con teclado.
+    if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
+      inputRef.current?.blur()
+    } else {
+      inputRef.current?.focus()
+    }
   }
 
   function handleInputChange(v: string) {

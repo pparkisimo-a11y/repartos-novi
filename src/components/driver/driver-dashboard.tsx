@@ -1052,6 +1052,9 @@ function PickupDialog({
   const [route, setRoute] = useState<{ km: number; method: 'road' | 'straight' } | null>(null)
   const [routeLoading, setRouteLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Ancla justo debajo del input: al elegir dirección hacemos scroll suave
+  // hasta aquí para que el banner de tarifa y el mapa queden a la vista.
+  const resultAnchorRef = useRef<HTMLDivElement>(null)
 
   const open = !!delivery
 
@@ -1065,6 +1068,17 @@ function PickupDialog({
       setRouteLoading(false)
     }
   }, [delivery])
+
+  // Al elegir una dirección aparecen el banner de tarifa y el mapa (el
+  // diálogo crece ~250 px): llevamos el resultado a la vista con un scroll
+  // suave y mínimo («nearest» no mueve nada si ya es visible).
+  useEffect(() => {
+    if (!selected) return
+    const t = setTimeout(() => {
+      resultAnchorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, 120)
+    return () => clearTimeout(t)
+  }, [selected])
 
   /** El repartidor eligió una dirección del desplegable: coordenadas exactas
    *  → tarifa en vivo con la distancia real por carretera (la que se guarda). */
@@ -1128,7 +1142,9 @@ function PickupDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      {/* dvh (si el navegador lo soporta) para que la altura máxima se
+          ajuste al viewport real del móvil; vh como fallback clásico. */}
+      <DialogContent className="max-h-[90vh] gap-3 overflow-y-auto overscroll-contain p-4 supports-[height:100dvh]:max-h-[90dvh] sm:max-w-lg sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PackageCheck className="h-5 w-5 text-primary" />
@@ -1146,7 +1162,7 @@ function PickupDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-1">
+        <div className="space-y-3 py-1">
           <div className="space-y-2">
             <Label htmlFor="pu-name">Nombre del cliente</Label>
             <Input
@@ -1172,6 +1188,10 @@ function PickupDialog({
               bias={delivery ? { lat: delivery.lat, lng: delivery.lng } : undefined}
               placeholder="Calle y número…"
             />
+
+            {/* Ancla para el scroll tras seleccionar: el banner y el mapa
+                que van debajo quedan a la vista sin mover nada más. */}
+            <div ref={resultAnchorRef} aria-hidden="true" />
 
             {/* Dirección seleccionada → distancia + tarifa en vivo */}
             {selected && route && route.km > 0 && (
@@ -1215,7 +1235,7 @@ function PickupDialog({
             />
           )}
 
-          <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-3">
+          <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-2.5">
             <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
               La tarifa se calcula con la distancia por carretera desde el local
