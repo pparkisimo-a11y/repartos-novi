@@ -13,7 +13,7 @@ import { usePushNotifications } from '@/hooks/use-push-notifications'
  * - Una vez concedido el permiso no se muestra nada: el hook mantiene la
  *   suscripción registrada automáticamente en cada visita.
  */
-export function PushBell({ role, userId }: { role: 'driver' | 'restaurant'; userId: string }) {
+export function PushBell({ role, userId }: { role: 'driver' | 'restaurant' | 'admin'; userId: string }) {
   const { permission, supported, requestAndSubscribe } = usePushNotifications(role, userId)
   const [busy, setBusy] = useState(false)
 

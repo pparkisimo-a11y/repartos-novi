@@ -177,6 +177,21 @@ export async function POST(req: Request) {
     )
   }
 
+  // Notificar al admin: nueva solicitud de reparto
+  const admins = await db.admin.findMany({ select: { id: true } })
+  await Promise.all(
+    admins.map((a) =>
+      sendPush(
+        { role: 'admin', userId: a.id },
+        {
+          title: 'Nueva solicitud de reparto',
+          body: `${restaurant.name}${customerName ? ` — ${customerName}` : ''}`,
+          tag: `delivery-${delivery.id}`,
+        },
+      ),
+    ),
+  )
+
   return NextResponse.json({ delivery: dto }, { status: 201 })
 }
 

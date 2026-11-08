@@ -19,6 +19,7 @@ import {
   Inbox,
   Receipt,
 } from 'lucide-react'
+import { PushBell } from '@/components/pwa/push-bell'
 import { Card, CardContent } from '@/components/ui/card'
 import { api } from '@/lib/api-client'
 import type { AdminUser, DeliveryDTO } from '@/lib/types'
@@ -86,6 +87,7 @@ export function AdminDashboard({
           {user.name} · gestión de locales, equipo y captación
         </p>
       </div>
+      <PushBell role="admin" userId={user.id} />
     </div>
   )
 
