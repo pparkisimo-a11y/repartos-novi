@@ -22,6 +22,7 @@
 
 import { haversineKm } from './fees'
 import { fetchWithRetry } from './http'
+import { googleQuotaAvailable, incrementGoogleQuota } from './quota'
 
 // Google Routes API (requiere key en .env)
 const GOOGLE_ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes'
@@ -75,6 +76,12 @@ async function googleDistanceKm(
   const cached = roadCache.get(key)
   if (cached !== undefined) return cached
 
+  // CUOTA: comprobar si quedan peticiones disponibles hoy. Si no, caer
+  // al respaldo (Mapbox/OSRM). Esto es INFALIBLE: el contador vive en BD,
+  // sobrevive a reinicios y se resetea cada día.
+  const hasQuota = await googleQuotaAvailable()
+  if (!hasQuota) return null
+
   // Rate limit: esperar al menos GOOGLE_MIN_INTERVAL_MS desde la última
   // petición para no recibir 429 (quota exceeded per minute).
   const elapsed = Date.now() - lastGoogleCall
@@ -109,6 +116,10 @@ async function googleDistanceKm(
       },
       { attempts: 2, retryDelayMs: 200 },
     )
+
+    // Contar la petición SIEMPRE (exitosa o no) para no pasarnos
+    await incrementGoogleQuota()
+
     if (res.ok) {
       const data = (await res.json()) as {
         routes?: { distanceMeters?: number }[]
@@ -125,7 +136,8 @@ async function googleDistanceKm(
       }
     }
   } catch {
-    // Google no respondió — probar Mapbox
+    // Google no respondió — contar igualmente y probar Mapbox
+    await incrementGoogleQuota()
   }
   return null
 }
