@@ -904,14 +904,14 @@ function OrderCardBody({
   return (
     <>
       {delivery.customerName && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mb-4 flex max-w-full flex-wrap items-center gap-2 overflow-hidden">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
             <User className="h-3.5 w-3.5" />
             {delivery.customerName}
           </span>
         </div>
       )}
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid max-w-full gap-5 overflow-hidden sm:grid-cols-2">
         {/* Timeline */}
         <div className="min-w-0 overflow-hidden">
           <div className="flex gap-3">
@@ -992,7 +992,7 @@ function OrderCardBody({
       </div>
 
       {/* Actions — Aceptar/Rechazar lado a lado y con buen tamaño táctil */}
-      <div className="mt-5 space-y-3">
+      <div className="mt-5 max-w-full space-y-3 overflow-hidden">
         {isPending && (
           <div className="grid grid-cols-2 gap-3">
             <Button
