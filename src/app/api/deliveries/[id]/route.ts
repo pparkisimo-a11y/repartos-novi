@@ -317,6 +317,31 @@ export async function PATCH(
         { ...push, tag },
       )
     }
+
+    // Notificar al admin: pedido aceptado, recogido o entregado
+    const adminPush: Record<string, { title: string; body: string }> = {
+      ACCEPTED: {
+        title: 'Pedido aceptado',
+        body: `${session.name} ha aceptado el pedido de ${updated.restaurant.name}.`,
+      },
+      PICKED_UP: {
+        title: 'Pedido recogido',
+        body: `${session.name} ha recogido el pedido de ${updated.restaurant.name}.`,
+      },
+      DELIVERED: {
+        title: 'Reparto completado',
+        body: `${session.name} ha entregado el pedido de ${updated.restaurant.name}.`,
+      },
+    }
+    const adminNotif = adminPush[nextStatus]
+    if (adminNotif) {
+      const admins = await db.admin.findMany({ select: { id: true } })
+      await Promise.all(
+        admins.map((a) =>
+          sendPush({ role: 'admin', userId: a.id }, { ...adminNotif, tag }),
+        ),
+      )
+    }
   } else if (nextStatus === 'CANCELLED' && assignedDriverIds.length > 0) {
     // El restaurante canceló → avisar a TODOS los repartidores asignados
     await Promise.all(

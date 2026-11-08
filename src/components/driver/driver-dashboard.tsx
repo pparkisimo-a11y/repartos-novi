@@ -517,19 +517,24 @@ function PedidosView({
                   {activity.map((d) => {
                     const done = d.status === 'DELIVERED'
                     const moving = d.status === 'ACCEPTED' || d.status === 'PICKED_UP'
+                    const rejected = d.status === 'REJECTED' || d.status === 'CANCELLED'
                     return (
                       <li key={d.id} className="flex items-start gap-3">
                         <span
                           className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                             done
                               ? 'bg-emerald-100 text-emerald-600'
-                              : moving
-                                ? 'bg-primary/15 text-primary'
-                                : 'bg-zinc-100 text-zinc-500'
+                              : rejected
+                                ? 'bg-rose-100 text-rose-500'
+                                : moving
+                                  ? 'bg-primary/15 text-primary'
+                                  : 'bg-zinc-100 text-zinc-500'
                           }`}
                         >
                           {done ? (
                             <Check className="h-4 w-4" />
+                          ) : rejected ? (
+                            <X className="h-4 w-4" />
                           ) : moving ? (
                             <Bike className="h-4 w-4" />
                           ) : (
@@ -540,9 +545,11 @@ function PedidosView({
                           <p className="text-sm font-semibold">
                             {done
                               ? 'Pedido entregado'
-                              : moving
-                                ? 'En camino'
-                                : 'Pendiente'}
+                              : rejected
+                                ? 'Pedido rechazado'
+                                : moving
+                                  ? 'En camino'
+                                  : 'Pendiente'}
                             {d.fee != null && done && (
                               <span className="ml-1.5 font-mono text-xs font-semibold text-emerald-600">
                                 {formatEur(d.fee)}
@@ -551,7 +558,7 @@ function PedidosView({
                           </p>
                           <p className="truncate text-xs text-muted-foreground">
                             {d.restaurantName}
-                            {d.customerName ? ` — ${d.customerName}` : ''} · #{d.id.slice(-4).toUpperCase()}
+                            {d.customerName ? ` — pedido para ${d.customerName}` : ''} · #{d.id.slice(-4).toUpperCase()}
                           </p>
                         </div>
                         <span className="shrink-0 text-xs text-muted-foreground">
