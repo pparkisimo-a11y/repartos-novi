@@ -186,12 +186,12 @@ export function ManageRestaurants() {
             <Card key={r.id} className={`overflow-hidden shadow-sm ${r.assignedDriverIds.length === 0 ? 'border-amber-300' : ''}`}>
               <CardContent className="p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       <Store className="h-5 w-5" />
                     </span>
-                    <div className="min-w-0">
-                      <p className="font-semibold">{r.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{r.name}</p>
                       <p className="truncate text-xs text-muted-foreground">
                         <MapPin className="mr-1 inline h-3 w-3" />
                         {r.address}

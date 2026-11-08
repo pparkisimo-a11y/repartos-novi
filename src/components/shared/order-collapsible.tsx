@@ -122,7 +122,7 @@ export function CollapsibleOrderCard({
         }`}
       >
         <div className="overflow-hidden" inert={!expanded}>
-          <div className="p-5">{children}</div>
+          <div className="p-4 sm:p-5">{children}</div>
         </div>
       </div>
 

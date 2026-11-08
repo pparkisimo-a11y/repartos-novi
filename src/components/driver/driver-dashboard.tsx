@@ -190,7 +190,7 @@ export function DriverDashboard({
       )
     : []
 
-  const allDeliveries = recentData?.deliveries || []
+  const allDeliveries = (recentData?.deliveries || []).filter(isMine)
   // Activity = most recent finished/in-progress, take 4
   const activity = [...allDeliveries]
     .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime())
@@ -920,7 +920,7 @@ function OrderCardBody({
       )}
       <div className="grid gap-5 sm:grid-cols-2">
         {/* Timeline */}
-        <div>
+        <div className="min-w-0">
           <div className="flex gap-3">
             {/* line + nodes */}
             <div className="flex flex-col items-center">
@@ -932,21 +932,21 @@ function OrderCardBody({
                 <Home className="h-4 w-4" />
               </span>
             </div>
-            <div className="flex flex-col justify-between py-0.5">
-              <div>
+            <div className="flex min-w-0 flex-col justify-between py-0.5">
+              <div className="min-w-0">
                 <p className="text-base font-bold">{delivery.restaurantName}</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="break-words text-sm text-muted-foreground">
                   {delivery.restaurantAddress}
                 </p>
                 <p className="mt-0.5 text-xs font-medium text-primary">
                   Recoger aquí
                 </p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-base font-bold">Entrega</p>
                 {delivery.dropoffAddress ? (
                   <>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="break-words text-sm text-muted-foreground">
                       {delivery.dropoffAddress}
                     </p>
                     {delivery.fee != null && (
