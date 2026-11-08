@@ -22,7 +22,6 @@ import {
   User,
   Euro,
   Navigation,
-  Ruler,
   Search,
   Shield,
 } from 'lucide-react'
@@ -1051,7 +1050,6 @@ function PickupDialog({
 }) {
   const [customerName, setCustomerName] = useState('')
   const [address, setAddress] = useState('')
-  const [manualKm, setManualKm] = useState('')
   const [selected, setSelected] = useState<AddressSuggestion | null>(null)
   const [route, setRoute] = useState<{ km: number; method: 'road' | 'straight' } | null>(null)
   const [routeLoading, setRouteLoading] = useState(false)
@@ -1064,7 +1062,6 @@ function PickupDialog({
     if (delivery) {
       setCustomerName(delivery.customerName || '')
       setAddress('')
-      setManualKm('')
       setSelected(null)
       setRoute(null)
       setRouteLoading(false)
@@ -1091,10 +1088,8 @@ function PickupDialog({
       .finally(() => setRouteLoading(false))
   }
 
-  // Distancia y tarifa en vivo (km manuales mandan sobre el mapa)
-  const manualKmNum = Number(manualKm.replace(',', '.'))
-  const manualValid = manualKm.trim() !== '' && Number.isFinite(manualKmNum) && manualKmNum > 0
-  const distanceKm = manualValid ? manualKmNum : route?.km ?? null
+  // Distancia por carretera (Google Routes API en el servidor)
+  const distanceKm = route?.km ?? null
   // Tarifa del restaurante de este reparto (cada local puede tener la suya)
   const feeConfig = delivery
     ? { baseEur: delivery.feeBaseEur, thresholdKm: delivery.feeThresholdKm, perExtraKmEur: delivery.feePerExtraKmEur }
@@ -1114,11 +1109,9 @@ function PickupDialog({
       const res = await api.updateDelivery(delivery.id, 'PICKED_UP', {
         customerName: customerName.trim() || undefined,
         dropoffAddress: address.trim(),
-        ...(manualValid
-          ? { distanceKm: manualKmNum }
-          : selected
-            ? { dropoffLat: selected.lat, dropoffLng: selected.lng }
-            : {}),
+        ...(selected
+          ? { dropoffLat: selected.lat, dropoffLng: selected.lng }
+          : {}),
       })
       toast.success('Pedido recogido', {
         description:
@@ -1223,31 +1216,6 @@ function PickupDialog({
               compact
             />
           )}
-
-          <div className="space-y-2">
-            <Label htmlFor="pu-km" className="flex items-center gap-1.5 text-muted-foreground">
-              <Ruler className="h-3.5 w-3.5" />
-              Distancia a mano (km) — opcional
-            </Label>
-            <Input
-              id="pu-km"
-              value={manualKm}
-              onChange={(e) => setManualKm(e.target.value)}
-              placeholder="Ej. 2.5"
-              inputMode="decimal"
-              className="max-w-[10rem]"
-            />
-            {manualValid && (
-              <p className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                Tarifa: <strong>{formatEur(fee)}</strong>
-                <span className="text-xs">({formatKm(manualKmNum)})</span>
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Si la conoces o el mapa no encuentra la dirección. Prevalece
-              sobre la distancia calculada.
-            </p>
-          </div>
 
           <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-3">
             <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
