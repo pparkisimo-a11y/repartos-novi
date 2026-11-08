@@ -108,7 +108,7 @@ export function CollapsibleOrderCard({
 
       {/* Resumen siempre visible: lo importante de un vistazo sin abrir */}
       {collapsible && summary && (
-        <div className="flex animate-in fade-in flex-wrap items-center gap-x-3 gap-y-1.5 bg-muted/30 px-4 py-2.5 duration-300 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 overflow-hidden bg-muted/30 px-4 py-2.5 sm:px-5">
           {summary}
         </div>
       )}

@@ -830,27 +830,11 @@ function OrderCard({
             'dirección pendiente'
           )}
         </span>
-        {delivery.distanceKm != null && (
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            {formatKm(delivery.distanceKm)}
-          </span>
-        )}
         {delivery.fee != null && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
             <Euro className="h-3 w-3" />
             {formatEur(delivery.fee)}
           </span>
-        )}
-        {mapsUrl && (
-          <a
-            href={mapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border bg-card px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5"
-          >
-            <Navigation className="h-3.5 w-3.5" />
-            Maps
-          </a>
         )}
       </>
     )
