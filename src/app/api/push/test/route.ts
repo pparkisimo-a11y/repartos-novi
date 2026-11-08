@@ -13,11 +13,11 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
   }
-  if (session.role !== 'driver' && session.role !== 'restaurant') {
+  if (session.role !== 'driver' && session.role !== 'restaurant' && session.role !== 'admin') {
     return NextResponse.json({ error: 'Este perfil no recibe notificaciones' }, { status: 400 })
   }
 
-  const target = { role: session.role as 'driver' | 'restaurant', userId: session.id }
+  const target = { role: session.role as 'driver' | 'restaurant' | 'admin', userId: session.id }
   const devices = await countPushSubscriptions(target)
   if (devices === 0) {
     return NextResponse.json({ sent: 0 })

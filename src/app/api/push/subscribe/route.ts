@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
   }
-  if (session.role !== 'driver' && session.role !== 'restaurant') {
+  if (session.role !== 'driver' && session.role !== 'restaurant' && session.role !== 'admin') {
     return NextResponse.json({ error: 'Este perfil no recibe notificaciones' }, { status: 400 })
   }
 

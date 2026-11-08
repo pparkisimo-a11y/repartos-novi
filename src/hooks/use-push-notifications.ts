@@ -27,7 +27,7 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
  *  2. Exposes `requestAndSubscribe` for the "Activar avisos" button (iOS
  *     requires a user tap to show the permission prompt).
  */
-export function usePushNotifications(role: 'driver' | 'restaurant', userId: string) {
+export function usePushNotifications(role: 'driver' | 'restaurant' | 'admin', userId: string) {
   const [permission, setPermission] = useState<PushPermission>('default')
 
   const supported =

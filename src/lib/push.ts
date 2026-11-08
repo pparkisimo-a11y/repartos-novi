@@ -36,7 +36,7 @@ export function hasVapidKeys(): boolean {
 
 /** Number of devices subscribed for a given role/userId. */
 export async function countPushSubscriptions(
-  target: { role: 'driver' | 'restaurant'; userId: string },
+  target: { role: 'driver' | 'restaurant' | 'admin'; userId: string },
 ): Promise<number> {
   return db.pushSubscription.count({
     where: { role: target.role, userId: target.userId },
@@ -49,7 +49,7 @@ export async function countPushSubscriptions(
  * Returns the number of notifications delivered.
  */
 export async function sendPush(
-  target: { role: 'driver' | 'restaurant'; userId: string },
+  target: { role: 'driver' | 'restaurant' | 'admin'; userId: string },
   payload: PushPayload,
 ): Promise<number> {
   if (!hasVapidKeys()) {
