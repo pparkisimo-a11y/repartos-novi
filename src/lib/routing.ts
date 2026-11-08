@@ -42,6 +42,13 @@ const CACHE_LIMIT = 300
 // Factor de desvío cuando TODO falla: 1,3 × la línea recta (moto en ciudad).
 const FALLBACK_DETOUR_FACTOR = 1.3
 
+// Rate limit: Google Routes API permite un número limitado de peticiones por
+// minuto. Con la demo key son ~20/min; con una key de producción (10.000/mes)
+// el límite es más holgado pero conviene no abusar. Esperamos al menos 1s
+// entre peticiones para no recibir 429.
+const GOOGLE_MIN_INTERVAL_MS = 3000
+let lastGoogleCall = 0
+
 const roadCache = new Map<string, number>()
 
 function round2(n: number): number {
@@ -67,6 +74,14 @@ async function googleDistanceKm(
   const key = `${pointKey(from)}|${pointKey(to)}`
   const cached = roadCache.get(key)
   if (cached !== undefined) return cached
+
+  // Rate limit: esperar al menos GOOGLE_MIN_INTERVAL_MS desde la última
+  // petición para no recibir 429 (quota exceeded per minute).
+  const elapsed = Date.now() - lastGoogleCall
+  if (elapsed < GOOGLE_MIN_INTERVAL_MS) {
+    await new Promise((r) => setTimeout(r, GOOGLE_MIN_INTERVAL_MS - elapsed))
+  }
+  lastGoogleCall = Date.now()
 
   // departureTime debe ser futura (Google rechaza el pasado). Usamos ahora
   // + 2 minutos para que considere el tráfico actual, igual que la UI.
