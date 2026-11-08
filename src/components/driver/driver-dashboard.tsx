@@ -1144,7 +1144,13 @@ function PickupDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* dvh (si el navegador lo soporta) para que la altura máxima se
           ajuste al viewport real del móvil; vh como fallback clásico. */}
-      <DialogContent className="max-h-[90vh] gap-3 overflow-y-auto overscroll-contain p-4 supports-[height:100dvh]:max-h-[90dvh] sm:max-w-lg sm:p-6">
+      <DialogContent
+        className="max-h-[90vh] gap-3 overflow-y-auto overscroll-contain p-4 supports-[height:100dvh]:max-h-[90dvh] sm:max-w-lg sm:p-6"
+        /* El padding-bottom global de los diálogos (1.5rem + safe-area)
+           sobra aquí y hacía que el contenido no cupiese sin scroll en
+           móviles → diálogo “arrastrable”. Inline style = gana al CSS global. */
+        style={{ paddingBottom: '1rem' }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PackageCheck className="h-5 w-5 text-primary" />
@@ -1157,7 +1163,7 @@ function PickupDialog({
           </DialogTitle>
           <DialogDescription>
             {delivery
-              ? `Confirma los datos de la entrega de ${delivery.restaurantName}. La tarifa se calcula con la distancia y queda guardada con el pedido.`
+              ? `Confirma la entrega de ${delivery.restaurantName}. La tarifa se guarda con el pedido.`
               : ''}
           </DialogDescription>
         </DialogHeader>
@@ -1235,16 +1241,17 @@ function PickupDialog({
             />
           )}
 
-          <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-2.5">
-            <Euro className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">
-              La tarifa se calcula con la distancia por carretera desde el local
-              hasta la dirección elegida. La que ves arriba es lo que cobras tú.
-            </p>
-          </div>
+          {/* Nota compacta: antes era una caja con icono y dos líneas; en
+              móvil ocupaba de más y empujaba los botones fuera del pliegue. */}
+          <p className="px-1 text-[11px] leading-snug text-muted-foreground">
+            Tarifa = distancia por carretera desde el local. Lo que ves arriba
+            es lo que cobras tú.
+          </p>
         </div>
 
-        <DialogFooter className="gap-2">
+        {/* Botones en fila también en móvil: apilados ocupaban 44px extra
+            y empujaban el contenido fuera del pliegue (scroll interno). */}
+        <DialogFooter className="flex-row gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
