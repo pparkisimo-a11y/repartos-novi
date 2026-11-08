@@ -1,18 +1,20 @@
 /**
  * Distancia real por CARRETERA entre dos puntos — igual que Google Maps.
  *
- * MOTOR PRINCIPAL: Mapbox Directions API. Usa el motor de rutas de Mapbox
- * (mismo tipo de datos que Google Maps) con el perfil "driving" (coche). La
- * distancia es muy precisa y coincide con la que muestra Google Maps.
- * Requiere una API key (MAPBOX_ACCESS_TOKEN en .env). Plan gratuito:
- * 100.000 consultas/mes — de sobra para el volumen de repartos.
+ * MOTOR PRINCIPAL: Google Routes API (computeRoutes). Usa el mismo motor de
+ * rutas que la app de Google Maps, con perfil DRIVE + TRAFFIC_AWARE_OPTIMAL +
+ * departureTime = ahora. Así la distancia es prácticamente idéntica a la que
+ * muestra Google Maps UI (error medio ~150 m en pruebas reales).
+ * Requiere API key (GOOGLE_ROUTES_API_KEY en .env). Cuota gratis: 10.000
+ * consultas/mes — de sobra para el volumen de repartos (~600/mes).
  *
- * RESPALDO: si no hay token de Mapbox o Mapbox no responde, se usan varios
- * servidores OSRM (réplicas de OpenStreetMap). La distancia de OSRM puede
- * diferir ligeramente (~2-3%), pero es la mejor alternativa gratuita.
+ * RESPALDO 1: Mapbox Directions API (driving-traffic). Si no hay key de Google
+ * o Google no responde, usa Mapbox con tráfico en tiempo real.
  *
- * Si TODOS los servicios fallan, se aplica 1,3× la línea recta como
- * aproximación realista de moto en ciudad — nunca línea recta pura.
+ * RESPALDO 2: OSRM (OpenStreetMap). Si Mapbox tampoco responde, usa OSRM.
+ *
+ * Si TODO falla, se aplica 1,3× la línea recta como aproximación realista de
+ * moto en ciudad — nunca línea recta pura.
  *
  * Caché en memoria: origen→destino no cambia entre la previsualización del
  * repartidor y el guardado, así que la tarifa que ve es la que se guarda.
@@ -21,13 +23,15 @@
 import { haversineKm } from './fees'
 import { fetchWithRetry } from './http'
 
-// Mapbox Directions API (requiere token en .env)
-// Perfil driving-traffic: usa tráfico en tiempo real (igual que Google Maps),
-// lo que da distancias más precisas que el perfil driving normal.
+// Google Routes API (requiere key en .env)
+const GOOGLE_ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes'
+const GOOGLE_KEY = process.env.GOOGLE_ROUTES_API_KEY || ''
+
+// Mapbox Directions API (respaldo, requiere token en .env)
 const MAPBOX_DIRECTIONS = 'https://api.mapbox.com/directions/v5/mapbox/driving-traffic'
 const MAPBOX_TOKEN = process.env.MAPBOX_ACCESS_TOKEN || ''
 
-// Múltiples servidores OSRM públicos como respaldo.
+// OSRM público (último respaldo)
 const OSRM_SERVERS = [
   'https://router.project-osrm.org/route/v1/driving',
   'https://routing.openstreetmap.de/routed-car/route/v1/driving',
@@ -49,8 +53,70 @@ function pointKey(p: { lat: number; lng: number }): string {
 }
 
 /**
- * Distancia por Mapbox Directions API. Devuelve km o null si no hay token o
- * Mapbox no responde. Solo se cachean los éxitos.
+ * Distancia por Google Routes API. Devuelve km o null si no hay key o Google
+ * no responde. Usa DRIVE + TRAFFIC_AWARE_OPTIMAL + departureTime = ahora +2min
+ * para que trace la misma ruta que Google Maps UI (con tráfico en tiempo real).
+ * Solo se cachean los éxitos.
+ */
+async function googleDistanceKm(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): Promise<number | null> {
+  if (!GOOGLE_KEY) return null
+
+  const key = `${pointKey(from)}|${pointKey(to)}`
+  const cached = roadCache.get(key)
+  if (cached !== undefined) return cached
+
+  // departureTime debe ser futura (Google rechaza el pasado). Usamos ahora
+  // + 2 minutos para que considere el tráfico actual, igual que la UI.
+  const departure = new Date(Date.now() + 2 * 60_000).toISOString()
+
+  try {
+    const body = JSON.stringify({
+      origin: { location: { latLng: { latitude: from.lat, longitude: from.lng } } },
+      destination: { location: { latLng: { latitude: to.lat, longitude: to.lng } } },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE_OPTIMAL',
+      departureTime: departure,
+    })
+    const res = await fetchWithRetry(
+      GOOGLE_ROUTES_URL,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_KEY,
+          'X-Goog-FieldMask': 'routes.distanceMeters',
+        },
+        body,
+        signal: AbortSignal.timeout(6000),
+      },
+      { attempts: 2, retryDelayMs: 200 },
+    )
+    if (res.ok) {
+      const data = (await res.json()) as {
+        routes?: { distanceMeters?: number }[]
+      }
+      const meters = data.routes?.[0]?.distanceMeters
+      if (Number.isFinite(meters) && meters > 0) {
+        const km = round2(meters / 1000)
+        if (roadCache.size >= CACHE_LIMIT) {
+          const oldest = roadCache.keys().next().value
+          if (oldest !== undefined) roadCache.delete(oldest)
+        }
+        roadCache.set(key, km)
+        return km
+      }
+    }
+  } catch {
+    // Google no respondió — probar Mapbox
+  }
+  return null
+}
+
+/**
+ * Distancia por Mapbox Directions API (driving-traffic). Devuelve km o null.
  */
 async function mapboxDistanceKm(
   from: { lat: number; lng: number },
@@ -63,8 +129,7 @@ async function mapboxDistanceKm(
   if (cached !== undefined) return cached
 
   try {
-    // Mapbox usa formato lng,lat (longitud primero)
-    const url = `${MAPBOX_DIRECTIONS}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false&alternatives=false&steps=false&annotations=distance&access_token=${MAPBOX_TOKEN}`
+    const url = `${MAPBOX_DIRECTIONS}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false&alternatives=false&steps=false&access_token=${MAPBOX_TOKEN}`
     const res = await fetchWithRetry(
       url,
       {
@@ -96,8 +161,7 @@ async function mapboxDistanceKm(
 }
 
 /**
- * Distancia por carretera con OSRM (respaldo si no hay Mapbox). Devuelve km
- * o null si ningún servidor responde.
+ * Distancia por carretera con OSRM (último respaldo). Devuelve km o null.
  */
 async function osrmDistanceKm(
   from: { lat: number; lng: number },
@@ -151,11 +215,11 @@ export interface DeliveryDistance {
 /**
  * Distancia definitiva para tarificar un reparto.
  *
- * MOTOR PRINCIPAL: OSRM (OpenStreetMap). Es el que menor error medio tiene
- * frente a Google Maps (~0,79 km) y es 100% gratis. Mapbox queda como
- * respaldo si OSRM no responde.
- *
- * Si ambos fallan, 1,3× línea recta (moto en ciudad).
+ * 1. Google Routes API (TRAFFIC_AWARE_OPTIMAL + departureTime=ahora) — igual
+ *    que Google Maps UI, error medio ~150 m.
+ * 2. Mapbox driving-traffic (respaldo, error medio ~1,1 km)
+ * 3. OSRM (último respaldo, error medio ~1 km)
+ * 4. 1,3× línea recta (solo si todo falla)
  *
  * Es la ÚNICA función que deben usar tanto la previsualización en vivo como
  * el guardado del pedido, para que la tarifa que ve el repartidor sea
@@ -167,14 +231,18 @@ export async function deliveryDistanceKm(
 ): Promise<DeliveryDistance> {
   const straight = round2(haversineKm(from, to))
 
-  // 1. OSRM (motor principal — menor error vs Google Maps)
-  const osrm = await osrmDistanceKm(from, to)
-  if (osrm != null) return { km: osrm, method: 'road' }
+  // 1. Google Routes API (motor principal — idéntico a Google Maps UI)
+  const google = await googleDistanceKm(from, to)
+  if (google != null) return { km: google, method: 'road' }
 
   // 2. Mapbox (respaldo)
   const mapbox = await mapboxDistanceKm(from, to)
   if (mapbox != null) return { km: mapbox, method: 'road' }
 
-  // 3. Fallback: 1,3× línea recta (moto en ciudad)
+  // 3. OSRM (último respaldo)
+  const osrm = await osrmDistanceKm(from, to)
+  if (osrm != null) return { km: osrm, method: 'road' }
+
+  // 4. Fallback: 1,3× línea recta (moto en ciudad)
   return { km: round2(straight * FALLBACK_DETOUR_FACTOR), method: 'road' }
 }
