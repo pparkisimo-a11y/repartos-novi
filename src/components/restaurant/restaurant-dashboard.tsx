@@ -17,6 +17,7 @@ import {
   User,
   Plus,
   Euro,
+  Receipt,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -695,14 +696,63 @@ function StatsBar({
 
 function RestaurantHistory({ deliveries }: { deliveries: DeliveryDTO[] }) {
   const [query, setQuery] = useState('')
+  const [period, setPeriod] = useState<'week' | 'month'>('month')
   const filtered = useMemo(() => {
     if (!query.trim()) return deliveries
     const q = query.toLowerCase()
     return deliveries.filter((d) => d.id.toLowerCase().includes(q))
   }, [deliveries, query])
 
+  // Total a pagar: solo entregados, dentro del periodo seleccionado
+  const now = new Date()
+  const periodStart = new Date(now)
+  if (period === 'week') periodStart.setDate(now.getDate() - 7)
+  else periodStart.setMonth(now.getMonth() - 1)
+
+  const periodDeliveries = deliveries.filter(
+    (d) => d.status === 'DELIVERED' && d.deliveredAt && new Date(d.deliveredAt) >= periodStart,
+  )
+  const periodTotal = periodDeliveries.reduce((acc, d) => acc + (d.fee ?? 0), 0)
+
   return (
     <div className="space-y-4">
+      {/* Resumen de pago */}
+      <Card className="overflow-hidden p-0 shadow-sm">
+        <div className="flex items-center justify-between gap-2 bg-primary px-5 py-3 text-white">
+          <span className="flex items-center gap-2 font-bold">
+            <Euro className="h-4 w-4" />
+            Total a pagar
+          </span>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setPeriod('week')}
+              className={`rounded-lg px-3 py-1 text-sm font-medium transition-colors ${period === 'week' ? 'bg-white/20' : 'text-white/70 hover:text-white'}`}
+            >
+              Última semana
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriod('month')}
+              className={`rounded-lg px-3 py-1 text-sm font-medium transition-colors ${period === 'month' ? 'bg-white/20' : 'text-white/70 hover:text-white'}`}
+            >
+              Último mes
+            </button>
+          </div>
+        </div>
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="text-3xl font-bold text-emerald-600">{formatEur(periodTotal)}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {periodDeliveries.length} reparto{periodDeliveries.length === 1 ? '' : 's'} entregado{periodDeliveries.length === 1 ? '' : 's'}
+            </p>
+          </div>
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+            <Receipt className="h-6 w-6" />
+          </span>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold">Historial de repartos</h2>
         <div className="relative sm:w-72">
@@ -734,10 +784,11 @@ function RestaurantHistory({ deliveries }: { deliveries: DeliveryDTO[] }) {
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-5 py-3 font-semibold">Pedido</th>
                     <th className="px-5 py-3 font-semibold">Solicitado</th>
-                    <th className="px-5 py-3 font-semibold">Aceptado</th>
                     <th className="px-5 py-3 font-semibold">Recogido</th>
                     <th className="px-5 py-3 font-semibold">Entregado</th>
-                    <th className="px-5 py-3 font-semibold">Tiempo total</th>
+                    <th className="px-5 py-3 font-semibold">Cliente</th>
+                    <th className="px-5 py-3 text-right font-semibold">Distancia</th>
+                    <th className="px-5 py-3 text-right font-semibold">Tarifa</th>
                     <th className="px-5 py-3 font-semibold">Estado</th>
                   </tr>
                 </thead>
@@ -748,10 +799,11 @@ function RestaurantHistory({ deliveries }: { deliveries: DeliveryDTO[] }) {
                         #{d.id.slice(-6).toUpperCase()}
                       </td>
                       <td className="px-5 py-3 text-muted-foreground">{formatDateTime(d.requestedAt)}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{formatTime(d.acceptedAt)}</td>
                       <td className="px-5 py-3 text-muted-foreground">{formatTime(d.pickedUpAt)}</td>
                       <td className="px-5 py-3 text-muted-foreground">{formatTime(d.deliveredAt)}</td>
-                      <td className="px-5 py-3 font-mono font-semibold">{formatDuration(d.totalMs)}</td>
+                      <td className="px-5 py-3">{d.customerName || '—'}</td>
+                      <td className="px-5 py-3 text-right text-muted-foreground">{d.distanceKm != null ? formatKm(d.distanceKm) : '—'}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-emerald-600">{d.fee != null ? formatEur(d.fee) : '—'}</td>
                       <td className="px-5 py-3"><StatusBadge status={d.status} showDot={false} /></td>
                     </tr>
                   ))}
@@ -770,12 +822,12 @@ function RestaurantHistory({ deliveries }: { deliveries: DeliveryDTO[] }) {
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>Solicitado: {formatDateTime(d.requestedAt)}</span>
-                  <span>Aceptado: {formatTime(d.acceptedAt)}</span>
-                  <span>Recogido: {formatTime(d.pickedUpAt)}</span>
                   <span>Entregado: {formatTime(d.deliveredAt)}</span>
-                  <span className="col-span-2 font-mono font-semibold text-foreground">
-                    Tiempo total: {formatDuration(d.totalMs)}
-                  </span>
+                  {d.customerName && <span className="col-span-2">Cliente: {d.customerName}</span>}
+                  {d.distanceKm != null && <span>Distancia: {formatKm(d.distanceKm)}</span>}
+                  {d.fee != null && (
+                    <span className="font-semibold text-emerald-600">Tarifa: {formatEur(d.fee)}</span>
+                  )}
                 </div>
               </div>
             ))}
