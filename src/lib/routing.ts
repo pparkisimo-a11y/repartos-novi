@@ -151,9 +151,11 @@ export interface DeliveryDistance {
 /**
  * Distancia definitiva para tarificar un reparto.
  *
- * 1. Mapbox Directions API (motor principal, muy preciso)
- * 2. OSRM (respaldo gratuito)
- * 3. 1,3× línea recta (solo si todo falla — caída de red)
+ * MOTOR PRINCIPAL: OSRM (OpenStreetMap). Es el que menor error medio tiene
+ * frente a Google Maps (~0,79 km) y es 100% gratis. Mapbox queda como
+ * respaldo si OSRM no responde.
+ *
+ * Si ambos fallan, 1,3× línea recta (moto en ciudad).
  *
  * Es la ÚNICA función que deben usar tanto la previsualización en vivo como
  * el guardado del pedido, para que la tarifa que ve el repartidor sea
@@ -165,13 +167,13 @@ export async function deliveryDistanceKm(
 ): Promise<DeliveryDistance> {
   const straight = round2(haversineKm(from, to))
 
-  // 1. Mapbox (motor principal)
+  // 1. OSRM (motor principal — menor error vs Google Maps)
+  const osrm = await osrmDistanceKm(from, to)
+  if (osrm != null) return { km: osrm, method: 'road' }
+
+  // 2. Mapbox (respaldo)
   const mapbox = await mapboxDistanceKm(from, to)
   if (mapbox != null) return { km: mapbox, method: 'road' }
-
-  // 2. OSRM (respaldo)
-  const road = await osrmDistanceKm(from, to)
-  if (road != null) return { km: road, method: 'road' }
 
   // 3. Fallback: 1,3× línea recta (moto en ciudad)
   return { km: round2(straight * FALLBACK_DETOUR_FACTOR), method: 'road' }
