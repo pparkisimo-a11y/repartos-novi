@@ -79,8 +79,8 @@ export async function PATCH(
       await sendPush(
         { role: 'driver', userId: previousDriverId },
         {
-          title: 'Pedido reasignado',
-          body: `${session.name} se ha hecho cargo del pedido #${id.slice(-6).toUpperCase()} de ${delivery.restaurant.name}.`,
+          title: 'Te han quitado el pedido',
+          body: `${session.name} se ha hecho cargo del pedido de ${delivery.restaurant.name}.`,
           tag: `delivery-${id}`,
         },
       )
@@ -171,8 +171,8 @@ export async function PATCH(
         await sendPush(
           { role: 'driver', userId: nextAssigneeId },
           {
-            title: 'Nueva solicitud de reparto',
-            body: `${delivery.restaurant.name} necesita repartidor${delivery.customerName ? ` — ${delivery.customerName}` : ''}`,
+            title: 'Nuevo pedido',
+            body: `${delivery.restaurant.name}${delivery.customerName ? ` — pedido para ${delivery.customerName}` : ''}`,
             tag: `delivery-${id}`,
           },
         )
@@ -288,26 +288,26 @@ export async function PATCH(
     // El repartidor actualizó el estado → avisar al restaurante
     const restaurantPush: Record<string, { title: string; body: string }> = {
       ACCEPTED: {
-        title: '¡Repartidor aceptado!',
-        body: `${session.name} ha aceptado tu solicitud y va camino de tu local.`,
+        title: 'Pedido aceptado',
+        body: `${session.name} va de camino a recoger el pedido.`,
       },
       PICKED_UP: {
         title: 'Pedido recogido',
         body: updated.fee != null
-          ? `${session.name} ha recogido el pedido. Tarifa: ${updated.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`
+          ? `${session.name} ha recogido el pedido. Tarifa: ${updated.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`
           : `${session.name} ha recogido el pedido.`,
       },
       DELIVERED: {
-        title: 'Reparto completado',
+        title: 'Pedido entregado',
         body: `${session.name} ha confirmado la entrega.`,
       },
       REJECTED: {
-        title: 'Solicitud rechazada',
-        body: 'El repartidor no pudo aceptar tu solicitud. Puedes volver a solicitarla.',
+        title: 'Pedido rechazado',
+        body: 'El repartidor no ha podido aceptar. Puedes volver a solicitarlo.',
       },
       CANCELLED: {
-        title: 'Solicitud cancelada',
-        body: `${session.name} ha cancelado el reparto. Contacta con tu coordinador.`,
+        title: 'Pedido cancelado',
+        body: `${session.name} ha cancelado el reparto.`,
       },
     }
     const push = restaurantPush[nextStatus]
@@ -329,7 +329,7 @@ export async function PATCH(
         body: `${session.name} ha recogido el pedido de ${updated.restaurant.name}.`,
       },
       DELIVERED: {
-        title: 'Reparto completado',
+        title: 'Pedido entregado',
         body: `${session.name} ha entregado el pedido de ${updated.restaurant.name}.`,
       },
     }
@@ -350,7 +350,7 @@ export async function PATCH(
           { role: 'driver', userId: driverId },
           {
             title: 'Pedido cancelado',
-            body: `${updated.restaurant.name} ha cancelado la solicitud de reparto.`,
+            body: `${updated.restaurant.name} ha cancelado el pedido.`,
             tag,
           },
         ),

@@ -139,8 +139,8 @@ export function DriverDashboard({
         qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
         if (available) {
           playBeep()
-          toast.success('Nueva solicitud de reparto', {
-            description: `${d.restaurantName} solicita repartidor${d.customerName ? ` — ${d.customerName}` : ''}`,
+          toast.success('Nuevo pedido', {
+            description: `${d.restaurantName}${d.customerName ? ` — pedido para ${d.customerName}` : ''}`,
             duration: 8000,
           })
         }

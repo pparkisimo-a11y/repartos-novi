@@ -170,8 +170,8 @@ export async function POST(req: Request) {
     await sendPush(
       { role: 'driver', userId: currentDriver.id },
       {
-        title: 'Nueva solicitud de reparto',
-        body: `${restaurant.name} necesita repartidor${customerName ? ` — ${customerName}` : ''}`,
+        title: 'Nuevo pedido',
+        body: `${restaurant.name}${customerName ? ` — pedido para ${customerName}` : ''}`,
         tag: `delivery-${delivery.id}`,
       },
     )
@@ -184,8 +184,8 @@ export async function POST(req: Request) {
       sendPush(
         { role: 'admin', userId: a.id },
         {
-          title: 'Nueva solicitud de reparto',
-          body: `${restaurant.name}${customerName ? ` — ${customerName}` : ''}`,
+          title: 'Nuevo pedido',
+          body: `${restaurant.name}${customerName ? ` — pedido para ${customerName}` : ''}`,
           tag: `delivery-${delivery.id}`,
         },
       ),
