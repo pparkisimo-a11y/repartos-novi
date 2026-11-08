@@ -105,10 +105,12 @@ export function ManageLeads({ currentDriverId }: { currentDriverId?: string }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* QR flyer card */}
-        <QrFlyerCard />
+        <div className="min-w-0">
+          <QrFlyerCard />
+        </div>
 
         {/* Leads list */}
-        <div className="space-y-3 lg:col-span-2">
+        <div className="min-w-0 space-y-3 lg:col-span-2">
           {isLoading ? (
             <Card className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

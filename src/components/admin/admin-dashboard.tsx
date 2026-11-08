@@ -203,7 +203,7 @@ function ResumenView({
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Actividad en tiempo real */}
-        <div className="space-y-6 lg:col-span-2">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           <Card>
             <CardContent className="p-5">
               <div className="mb-4 flex items-center justify-between">
@@ -267,7 +267,7 @@ function ResumenView({
         </div>
 
         {/* Últimos completados */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardContent className="p-5">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">

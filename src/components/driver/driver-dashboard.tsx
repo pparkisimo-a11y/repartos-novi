@@ -464,8 +464,8 @@ function PedidosView({
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left: orders (2 cols) */}
-        <div className="space-y-4 lg:col-span-2">
+        {/* Left: orders (2 cols) — min-w-0 lets grid track shrink below content min-width (fixes mobile overflow caused by nowrap/truncate children) */}
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           {isLoading ? (
             <Card className="flex h-40 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -512,8 +512,8 @@ function PedidosView({
           )}
         </div>
 
-        {/* Right: activity */}
-        <div className="space-y-6">
+        {/* Right: activity — min-w-0 prevents its truncate/nowrap items from expanding the grid track */}
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardContent className="p-5">
               <h2 className="mb-4 text-lg font-bold">Tu actividad</h2>
