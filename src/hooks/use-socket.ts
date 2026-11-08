@@ -56,7 +56,9 @@ export function useSocket(user: AppUser | null) {
       setIsConnected(true)
       setStatus('connected')
       if (user.role === 'driver') {
-        instance.emit('join', { role: 'driver' })
+        instance.emit('join', { role: 'driver', driverId: user.id })
+      } else if (user.role === 'admin') {
+        instance.emit('join', { role: 'admin', adminId: user.id })
       } else {
         instance.emit('join', { role: 'restaurant', restaurantId: user.id })
       }

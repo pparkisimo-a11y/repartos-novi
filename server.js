@@ -50,12 +50,21 @@ async function main() {
       })
       if (data.role === 'driver') {
         socket.join('driver')
+        // Sala personal para mensajes dirigidos a este repartidor concreto
+        // (asignación secuencial: el servidor emite a driver:<id>)
+        if (data.driverId) {
+          socket.join(`driver:${data.driverId}`)
+          socket.data.driverId = data.driverId
+        }
         socket.data.role = 'driver'
       } else if (data.role === 'restaurant' && data.restaurantId) {
         const room = `restaurant:${data.restaurantId}`
         socket.join(room)
         socket.data.role = 'restaurant'
         socket.data.restaurantId = data.restaurantId
+      } else if (data.role === 'admin' && data.adminId) {
+        socket.join(`admin:${data.adminId}`)
+        socket.data.role = 'admin'
       }
       socket.emit('joined', { role: data.role })
     })
