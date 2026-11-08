@@ -691,7 +691,7 @@ function SuperSupervisionView({
                       <p className="text-sm font-semibold">
                         {d.restaurantName}
                         {d.customerName && (
-                          <span className="font-normal text-muted-foreground"> · {d.customerName}</span>
+                          <span className="font-normal text-muted-foreground"> — pedido para <strong className="text-foreground">{d.customerName}</strong></span>
                         )}
                       </p>
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
