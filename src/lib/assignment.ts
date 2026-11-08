@@ -38,11 +38,16 @@ export async function buildAssigneeOrder(
       scheduleDays: true,
       scheduleStart: true,
       scheduleEnd: true,
-      // Solo los pedidos PENDING que se le están ofreciendo AHORA. Si Laura
-      // ya tiene uno esperándola, el siguiente va a Mohamed. Así el reparto
-      // es estrictamente alterno sin importar el histórico.
+      // Pedidos activos que tiene este repartidor ahora mismo: PENDING que se
+      // le están ofreciendo + ACCEPTED/PICKED_UP que ya aceptó. Así si Laura
+      // ya aceptó uno y Mohamed no, el siguiente va a Mohamed (round-robin
+      // real: uno para cada, alternando).
       offeredDeliveries: {
         where: { status: 'PENDING' },
+        select: { id: true },
+      },
+      deliveries: {
+        where: { status: { in: ['ACCEPTED', 'PICKED_UP'] } },
         select: { id: true },
       },
     },
@@ -55,9 +60,9 @@ export async function buildAssigneeOrder(
     return {
       id: d.id,
       name: d.name,
-      // turnCount = pedidos pendientes que tiene ahora. El que menos tenga
-      // es el que le toca (round-robin puro).
-      turnCount: d.offeredDeliveries.length,
+      // turnCount = pedidos pendientes esperándole + pedidos que ya aceptó y
+      // están en marcha. El que menos tenga es el que le toca ahora.
+      turnCount: d.offeredDeliveries.length + d.deliveries.length,
       isWorking,
     }
   })
