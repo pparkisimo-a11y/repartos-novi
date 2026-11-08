@@ -139,7 +139,7 @@ export function ManageRestaurants() {
       )}
 
       {/* Stats strip */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Card className="shadow-sm">
           <CardContent className="flex items-center gap-3 p-4">
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -183,8 +183,8 @@ export function ManageRestaurants() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {restaurants.map((r) => (
-            <Card key={r.id} className={`shadow-sm ${r.assignedDriverIds.length === 0 ? 'border-amber-300' : ''}`}>
-              <CardContent className="p-5">
+            <Card key={r.id} className={`overflow-hidden shadow-sm ${r.assignedDriverIds.length === 0 ? 'border-amber-300' : ''}`}>
+              <CardContent className="p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">

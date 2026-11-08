@@ -125,8 +125,8 @@ export function ManageDrivers({ currentDriverId }: { currentDriverId?: string })
           {drivers.map((d) => {
             const isMe = d.id === currentDriverId
             return (
-              <Card key={d.id} className={`shadow-sm ${isMe ? 'border-primary/40' : ''}`}>
-                <CardContent className="p-5">
+              <Card key={d.id} className={`overflow-hidden shadow-sm ${isMe ? 'border-primary/40' : ''}`}>
+                <CardContent className="p-4 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <span
