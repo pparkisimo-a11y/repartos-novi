@@ -17,6 +17,7 @@ import {
   FileDown,
   CalendarDays,
   MapPin,
+  MoveRight,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -26,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,6 +37,7 @@ import {
   ApiError,
   getAuthToken,
   type BillingDriverDetail,
+  type BillingPeriodQuery,
 } from '@/lib/api-client'
 import { formatEur, feeExplanation } from '@/lib/fees'
 
@@ -58,19 +61,115 @@ function monthLabel(key: string): string {
   })
 }
 
+/** Modo del selector de periodo: mes natural o rango personalizado. */
+type PeriodMode = 'month' | 'custom'
+
+/** Fecha/hora local → valor para <input type="datetime-local"> (YYYY-MM-DDTHH:mm). */
+function toLocalInputValue(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function startOfLocalDay(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+/** El turno típico: del jueves a las 19:00 al viernes a las 13:00
+ *  (el más reciente; si está en marcha, hasta ahora). */
+function lastShiftRange(): [Date, Date] {
+  const now = new Date()
+  const from = startOfLocalDay(now)
+  from.setDate(from.getDate() - ((from.getDay() + 7 - 4) % 7)) // último jueves
+  from.setHours(19, 0, 0, 0)
+  if (from > now) from.setDate(from.getDate() - 7) // hoy todavía no eran las 19:00
+  const to = new Date(from)
+  to.setDate(to.getDate() + 1)
+  to.setHours(13, 0, 0, 0)
+  return [from, to > now ? new Date(now) : to]
+}
+
+/** Etiqueta corta de un rango: "jue, 12 nov 19:00 → vie, 13 nov 13:00". */
+function customRangeLabel(from: Date, to: Date): string {
+  const fd = from.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+  const td = to.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+  const ft = from.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  const tt = to.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  return `${fd} ${ft} → ${td} ${tt}`
+}
+
+type PresetKind = 'shift' | 'today' | 'yesterday' | 'week' | 'monthStart'
+
+const PERIOD_PRESETS: { label: string; kind: PresetKind; hint: string }[] = [
+  { label: 'Último turno', kind: 'shift', hint: 'Del jueves 19:00 al viernes 13:00 (el más reciente)' },
+  { label: 'Hoy', kind: 'today', hint: 'Desde las 00:00 de hoy' },
+  { label: 'Ayer', kind: 'yesterday', hint: 'Ayer de 00:00 a 24:00' },
+  { label: 'Últimos 7 días', kind: 'week', hint: 'Desde hace una semana' },
+  { label: 'Este mes', kind: 'monthStart', hint: 'Desde el día 1 del mes' },
+]
+
 /**
- * Liquidación mensual: total por local, desglose por repartidor y suma total
- * de cada restaurante (lo que debe pagar cada local a sus repartidores).
- * Para cada importe se muestra también la comisión de la plataforma y el
- * neto que va a recibir cada repartidor (bruto - comisión).
+ * Liquidación: total por local, desglose por repartidor y suma total de
+ * cada restaurante (lo que debe pagar cada local a sus repartidores).
+ * Se puede consultar el mes natural o un periodo personalizado (p. ej.
+ * un turno: del jueves 19:00 al viernes 13:00).
  */
 export function BillingView() {
   const months = recentMonths(6)
   const [month, setMonth] = useState(months[0])
+  const [mode, setMode] = useState<PeriodMode>('month')
+  // Rango personalizado (valores de <input type="datetime-local">)
+  const [fromDt, setFromDt] = useState(() => toLocalInputValue(lastShiftRange()[0]))
+  const [toDt, setToDt] = useState(() => toLocalInputValue(lastShiftRange()[1]))
   // Repartidores con el desglose día a día expandido (múltiples a la vez)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   // driverId cuyo PDF se está generando (para el spinner del botón)
   const [pdfBusy, setPdfBusy] = useState<string | null>(null)
+
+  const customFrom = fromDt ? new Date(fromDt) : null
+  const customTo = toDt ? new Date(toDt) : null
+  const rangeOk =
+    !!customFrom &&
+    !!customTo &&
+    !Number.isNaN(customFrom.getTime()) &&
+    !Number.isNaN(customTo.getTime()) &&
+    customFrom < customTo
+
+  const periodQuery: BillingPeriodQuery =
+    mode === 'custom' && rangeOk && customFrom && customTo
+      ? { from: customFrom.toISOString(), to: customTo.toISOString() }
+      : mode === 'custom'
+        ? {}
+        : { month }
+
+  const periodLabel =
+    mode === 'custom' && rangeOk && customFrom && customTo
+      ? customRangeLabel(customFrom, customTo)
+      : monthLabel(month)
+
+  const setPresetRange = (kind: PresetKind) => {
+    const now = new Date()
+    let from: Date
+    let to: Date
+    if (kind === 'shift') {
+      ;[from, to] = lastShiftRange()
+    } else if (kind === 'today') {
+      from = startOfLocalDay(now)
+      to = now
+    } else if (kind === 'yesterday') {
+      from = startOfLocalDay(new Date(now.getTime() - 24 * 60 * 60 * 1000))
+      to = startOfLocalDay(now)
+    } else if (kind === 'week') {
+      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      to = now
+    } else {
+      from = new Date(now.getFullYear(), now.getMonth(), 1)
+      to = now
+    }
+    setFromDt(toLocalInputValue(from))
+    setToDt(toLocalInputValue(to))
+  }
 
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => {
@@ -87,7 +186,7 @@ export function BillingView() {
     setPdfBusy(dr.driverId)
     try {
       const token = getAuthToken()
-      const res = await fetch(api.adminDriverBillingPdfUrl(dr.driverId, month), {
+      const res = await fetch(api.adminDriverBillingPdfUrl(dr.driverId, periodQuery), {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
       if (!res.ok) {
@@ -100,7 +199,7 @@ export function BillingView() {
       const match = cd.match(/filename="(.+)"/)
       const filename =
         match?.[1] ??
-        `liquidacion-${dr.driverName.toLowerCase().replace(/\s+/g, '-')}-${month}.pdf`
+        `liquidacion-${dr.driverName.toLowerCase().replace(/\s+/g, '-')}-${periodLabel}.pdf`
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -110,7 +209,7 @@ export function BillingView() {
       a.remove()
       URL.revokeObjectURL(url)
       toast.success('Liquidación en PDF descargada', {
-        description: `${dr.driverName} · ${monthLabel(month)}`,
+        description: `${dr.driverName} · ${periodLabel}`,
       })
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error al generar el PDF')
@@ -120,8 +219,9 @@ export function BillingView() {
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'billing', month],
-    queryFn: () => api.adminBilling(month),
+    queryKey: ['admin', 'billing', mode, periodQuery.month ?? '', periodQuery.from ?? '', periodQuery.to ?? ''],
+    queryFn: () => api.adminBilling(periodQuery),
+    enabled: mode === 'month' || rangeOk,
     refetchInterval: 60000,
   })
 
@@ -129,30 +229,120 @@ export function BillingView() {
     <div className="space-y-6">
       <CommissionCard />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-bold">Liquidación</h2>
           <p className="text-sm text-muted-foreground">
-            Totales de cada local del mes, desglosados por repartidor.
+            {mode === 'custom'
+              ? 'Totales de cada local del periodo, desglosados por repartidor.'
+              : 'Totales de cada local del mes, desglosados por repartidor.'}
           </p>
         </div>
-        <Select value={month} onValueChange={setMonth}>
-          <SelectTrigger className="w-full sm:w-52" aria-label="Mes de la liquidación">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {months.map((m) => (
-              <SelectItem key={m} value={m}>
-                {monthLabel(m)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={mode}
+            onValueChange={(v) => {
+              if (v === 'month' || v === 'custom') setMode(v)
+            }}
+            aria-label="Tipo de periodo de la liquidación"
+          >
+            <ToggleGroupItem value="month" className="px-3 text-xs sm:text-sm">
+              Mes
+            </ToggleGroupItem>
+            <ToggleGroupItem value="custom" className="px-3 text-xs sm:text-sm">
+              Periodo personalizado
+            </ToggleGroupItem>
+          </ToggleGroup>
+          {mode === 'month' && (
+            <Select value={month} onValueChange={setMonth}>
+              <SelectTrigger className="w-full sm:w-52" aria-label="Mes de la liquidación">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {months.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {monthLabel(m)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
+
+      {mode === 'custom' && (
+        <Card className="shadow-sm">
+          <CardContent className="space-y-3 p-4 sm:p-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-end lg:gap-2">
+              <div>
+                <Label htmlFor="liq-from">Desde</Label>
+                <Input
+                  id="liq-from"
+                  type="datetime-local"
+                  value={fromDt}
+                  onChange={(e) => setFromDt(e.target.value)}
+                  className="mt-1.5"
+                />
+              </div>
+              <MoveRight
+                className="hidden h-4 w-4 shrink-0 self-center text-muted-foreground lg:block lg:translate-y-2"
+                aria-hidden="true"
+              />
+              <div>
+                <Label htmlFor="liq-to">Hasta</Label>
+                <Input
+                  id="liq-to"
+                  type="datetime-local"
+                  value={toDt}
+                  onChange={(e) => setToDt(e.target.value)}
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">Atajos:</span>
+              {PERIOD_PRESETS.map((p) => (
+                <Button
+                  key={p.kind}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2.5 text-xs"
+                  title={p.hint}
+                  onClick={() => setPresetRange(p.kind)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            {fromDt && toDt && !rangeOk && (
+              <p className="text-sm text-destructive" role="alert">
+                La fecha de inicio debe ser anterior a la de fin.
+              </p>
+            )}
+            {rangeOk && (
+              <p className="text-xs text-muted-foreground sm:text-sm">
+                Periodo:{' '}
+                <span className="font-medium text-foreground">{periodLabel}</span> · se suman
+                los repartos entregados en ese intervalo.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading || !data ? (
         <Card className="flex h-40 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          {mode === 'custom' && fromDt && toDt && !rangeOk ? (
+            <p className="px-6 text-center text-sm text-muted-foreground">
+              Corrige el periodo (la fecha de inicio debe ser anterior a la de fin) para ver la
+              liquidación.
+            </p>
+          ) : (
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          )}
         </Card>
       ) : (
         <>
@@ -164,7 +354,9 @@ export function BillingView() {
                   <Euro className="h-5 w-5 sm:h-6 sm:w-6" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground sm:text-sm">Total del mes</p>
+                  <p className="text-xs text-muted-foreground sm:text-sm">
+                    {mode === 'custom' ? 'Total del periodo' : 'Total del mes'}
+                  </p>
                   <p className="text-xl font-bold leading-tight tabular-nums text-emerald-600 sm:text-2xl">
                     {formatEur(data.totals.totalEur)}
                   </p>
@@ -217,7 +409,7 @@ export function BillingView() {
             <Card className="border-border bg-muted/30">
               <CardContent className="space-y-2.5 p-4 sm:p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
-                  <span className="font-semibold">Cómo se reparte el dinero del mes</span>
+                  <span className="font-semibold">Cómo se reparte el dinero del periodo</span>
                   <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" />
@@ -256,7 +448,7 @@ export function BillingView() {
                   Lo que va a recibir cada repartidor
                 </CardTitle>
                 <p className="text-xs text-muted-foreground sm:text-sm">
-                  Todos los locales juntos en {monthLabel(data.month)}: generado, comisión de la
+                  Todos los locales juntos en {periodLabel}: generado, comisión de la
                   app ({data.commissionPct}%) y neto a recibir. Pulsa en un repartidor para ver su
                   desglose día a día o descarga su liquidación en PDF.
                 </p>
@@ -268,7 +460,7 @@ export function BillingView() {
                     <DriverMobileRow
                       key={dr.driverId ?? 'none'}
                       dr={dr}
-                      month={month}
+                      periodLabel={periodLabel}
                       expanded={expanded.has(dr.driverId ?? 'none')}
                       onToggle={() => toggleExpanded(dr.driverId ?? 'none')}
                       onPdf={() => downloadPdf(dr)}
@@ -354,7 +546,7 @@ export function BillingView() {
                             {expanded.has(key) && (
                               <tr className="border-t border-border/60 bg-muted/20">
                                 <td colSpan={6} className="px-5 py-4">
-                                  <DriverDayBreakdown dr={dr} month={month} />
+                                  <DriverDayBreakdown dr={dr} periodLabel={periodLabel} />
                                 </td>
                               </tr>
                             )}
@@ -377,7 +569,7 @@ export function BillingView() {
                 {feeExplanation()}. La tarifa se guarda con cada pedido al
                 recogerlo (distancia del local a la dirección de entrega). Se
                 suman los repartos <strong className="text-foreground">entregados</strong> del
-                mes y sobre cada tarifa se descuenta el{' '}
+                periodo consultado y sobre cada tarifa se descuenta el{' '}
                 <strong className="text-foreground">{data.commissionPct}%</strong> de comisión:
                 el resto es lo que recibe el repartidor.
               </p>
@@ -390,7 +582,7 @@ export function BillingView() {
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                 <Receipt className="mb-2 h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">
-                  Sin repartos completados en {monthLabel(data.month)}
+                  Sin repartos completados en {periodLabel}
                 </p>
               </CardContent>
             </Card>
@@ -654,12 +846,14 @@ interface DayGroup {
   netEur: number
 }
 
-/** Agrupa los repartos de un repartidor por día de entrega. */
+/** Agrupa los repartos de un repartidor por día de entrega (día LOCAL,
+ *  para que un reparto de madrugada cuente en el día correcto). */
 function groupByDay(deliveries: BillingDriverDetail['deliveries']): DayGroup[] {
   const map = new Map<string, DayGroup>()
   for (const d of deliveries) {
     const date = new Date(d.deliveredAt)
-    const key = date.toISOString().slice(0, 10)
+    const p = (n: number) => String(n).padStart(2, '0')
+    const key = `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`
     let g = map.get(key)
     if (!g) {
       g = {
@@ -682,7 +876,7 @@ function groupByDay(deliveries: BillingDriverDetail['deliveries']): DayGroup[] {
   return Array.from(map.values())
 }
 
-function DriverDayBreakdown({ dr, month }: { dr: BillingDriverDetail; month: string }) {
+function DriverDayBreakdown({ dr, periodLabel }: { dr: BillingDriverDetail; periodLabel: string }) {
   const days = groupByDay(dr.deliveries)
   return (
     <div className="space-y-3">
@@ -757,7 +951,7 @@ function DriverDayBreakdown({ dr, month }: { dr: BillingDriverDetail; month: str
       {/* Total del mes (cierra el desglose) */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border-2 border-border bg-muted/40 px-3 py-2.5 sm:px-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Total de {monthLabel(month)}
+          Total de {periodLabel}
         </p>
         <p className="text-sm">
           <span className="font-bold tabular-nums text-emerald-600">{formatEur(dr.totalEur)}</span>
@@ -780,14 +974,14 @@ function DriverDayBreakdown({ dr, month }: { dr: BillingDriverDetail; month: str
 
 function DriverMobileRow({
   dr,
-  month: monthKeyProp,
+  periodLabel,
   expanded,
   onToggle,
   onPdf,
   pdfBusy,
 }: {
   dr: BillingDriverDetail
-  month: string
+  periodLabel: string
   expanded: boolean
   onToggle: () => void
   onPdf: () => void
@@ -827,7 +1021,7 @@ function DriverMobileRow({
       </button>
       {expanded && (
         <div className="space-y-3 border-t border-border bg-muted/20 px-4 py-3">
-          <DriverDayBreakdown dr={dr} month={monthKeyProp} />
+          <DriverDayBreakdown dr={dr} periodLabel={periodLabel} />
           <Button
             type="button"
             variant="outline"

@@ -5,14 +5,18 @@ import { requireAdminFromRequest } from '@/lib/session'
 import { getCommissionPct, applyCommission } from '@/lib/settings'
 
 /**
- * PDF de liquidación mensual de UN repartidor — documento formal tipo nómina
+ * PDF de liquidación de UN repartidor — documento formal tipo nómina
  * que el admin puede enviar por WhatsApp o imprimir para justificar el pago.
  *
  *   GET /api/admin/billing/[driverId]/pdf?month=YYYY-MM
+ *   GET /api/admin/billing/[driverId]/pdf?from=<ISO>&to=<ISO>   (periodo/turno)
  *
- * Contenido: cabecera (repartidor, mes, comisión), desglose día a día de los
- * repartos entregados (hora, restaurante, dirección, distancia, tarifa,
- * comisión y neto) con subtotal por día, y totales del mes.
+ * Contenido: cabecera (repartidor, periodo, comisión), desglose día a día de
+ * los repartos entregados (hora, restaurante, dirección, distancia, tarifa,
+ * comisión y neto) con subtotal por día, y totales del periodo.
+ *
+ * Las horas se muestran en hora española (Europe/Madrid) para coincidir con
+ * lo que repartidor y admin ven en la app.
  */
 
 const A4: [number, number] = [595.28, 841.89]
@@ -20,15 +24,22 @@ const MARGIN = 42
 const PAGE_W = A4[0]
 const PAGE_H = A4[1]
 const CONTENT_W = PAGE_W - MARGIN * 2
+/** Límite inferior del contenido (debajo queda el pie de página). */
+const BOTTOM = MARGIN + 34
 
 // Paleta (la misma que la app: emerald para generado, amber para neto)
 const INK = rgb(0.10, 0.10, 0.12) // casi negro
 const MUTED = rgb(0.45, 0.47, 0.50) // gris
 const LINE = rgb(0.87, 0.88, 0.90) // borde suave
+const LINE_STRONG = rgb(0.72, 0.74, 0.78) // regla bajo cabeceras
 const ACCENT = rgb(0.02, 0.47, 0.35) // emerald-700
 const ACCENT_SOFT = rgb(0.91, 0.97, 0.94) // emerald muy claro
 const AMBER = rgb(0.68, 0.42, 0.04) // amber-700
 const HEAD_BG = rgb(0.10, 0.10, 0.12) // cabecera oscura
+const SUBTLE_BG = rgb(0.955, 0.965, 0.97) // banda de subtotal
+
+const TZ = 'Europe/Madrid'
+const MAX_PERIOD_MS = 366 * 24 * 60 * 60 * 1000
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -38,23 +49,58 @@ function fmtEur(n: number): string {
 function fmtKm(n: number): string {
   return `${n.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`
 }
+/** YYYY-MM-DD en hora española (agrupa los repartos por día correcto). */
 function dayKey(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
 }
 function fmtDay(d: Date): string {
   return d.toLocaleDateString('es-ES', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-    timeZone: 'UTC',
+    timeZone: TZ,
   })
 }
 function fmtTime(d: Date): string {
-  return d.toLocaleTimeString('es-ES', {
+  return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
+}
+/** "jue, 12 nov" en hora española. */
+function fmtDayShort(d: Date): string {
+  return d.toLocaleDateString('es-ES', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: TZ,
+  })
+}
+/** "jueves, 12 de noviembre" en hora española. */
+function fmtDayLong(d: Date): string {
+  return d.toLocaleDateString('es-ES', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: TZ,
+  })
+}
+/** Componentes de fecha/hora en hora española: YYYYMMDD-HHmm. */
+function madridStamp(d: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'UTC',
-  })
+    hour12: false,
+  }).formatToParts(d)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00'
+  const hh = get('hour') === '24' ? '00' : get('hour')
+  return `${get('year')}${get('month')}${get('day')}-${hh}${get('minute')}`
 }
 function monthLabel(year: number, month: number): string {
   return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('es-ES', {
@@ -69,6 +115,7 @@ function sane(s: string): string {
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u2192/g, '->')
     .replace(/\u2026/g, '...')
 }
 
@@ -87,24 +134,59 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     await requireAdminFromRequest(req)
     const { driverId } = await ctx.params
 
-    // Mes: YYYY-MM (por defecto el actual)
     const { searchParams } = new URL(req.url)
     const monthParam = searchParams.get('month') || ''
-    let year: number
-    let month: number
-    if (/^\d{4}-\d{2}$/.test(monthParam)) {
+    const fromParam = searchParams.get('from') || ''
+    const toParam = searchParams.get('to') || ''
+
+    let mode: 'month' | 'custom' = 'month'
+    let from: Date
+    let to: Date
+    let year = 0
+    let month = 0 // 1-12
+
+    if (fromParam || toParam) {
+      // Periodo personalizado (p. ej. un turno: jue 19:00 → vie 13:00)
+      const fromD = new Date(fromParam)
+      const toD = new Date(toParam)
+      if (
+        !fromParam ||
+        !toParam ||
+        Number.isNaN(fromD.getTime()) ||
+        Number.isNaN(toD.getTime())
+      ) {
+        return NextResponse.json({ error: 'Periodo no válido' }, { status: 400 })
+      }
+      if (fromD >= toD) {
+        return NextResponse.json(
+          { error: 'La fecha de inicio debe ser anterior a la de fin' },
+          { status: 400 },
+        )
+      }
+      if (toD.getTime() - fromD.getTime() > MAX_PERIOD_MS) {
+        return NextResponse.json(
+          { error: 'El periodo no puede abarcar más de un año' },
+          { status: 400 },
+        )
+      }
+      mode = 'custom'
+      from = fromD
+      to = toD
+    } else if (/^\d{4}-\d{2}$/.test(monthParam)) {
       year = Number(monthParam.slice(0, 4))
       month = Number(monthParam.slice(5, 7))
       if (month < 1 || month > 12 || year < 2020 || year > 2100) {
         return NextResponse.json({ error: 'Mes no válido' }, { status: 400 })
       }
+      from = new Date(Date.UTC(year, month - 1, 1))
+      to = new Date(Date.UTC(year, month, 1))
     } else {
       const now = new Date()
       year = now.getUTCFullYear()
       month = now.getUTCMonth() + 1
+      from = new Date(Date.UTC(year, month - 1, 1))
+      to = new Date(Date.UTC(year, month, 1))
     }
-    const from = new Date(Date.UTC(year, month - 1, 1))
-    const to = new Date(Date.UTC(year, month, 1))
 
     const driver = await db.driver.findUnique({
       where: { id: driverId },
@@ -138,7 +220,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       }
     })
 
-    // Agrupar por día (UTC, igual que el resto de la liquidación)
+    // Agrupar por día (hora española, igual que la app)
     const byDay = new Map<string, Row[]>()
     for (const r of rows) {
       const k = dayKey(r.deliveredAt)
@@ -154,7 +236,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     const font = await pdf.embedFont(StandardFonts.Helvetica)
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
 
-    pdf.setTitle(sane(`Liquidación — ${driver.name} — ${monthLabel(year, month)}`))
+    const periodTitle =
+      mode === 'custom'
+        ? `${fmtDayShort(from)} ${fmtTime(from)} → ${fmtDayShort(to)} ${fmtTime(to)}`
+        : monthLabel(year, month)
+    const periodDetail =
+      mode === 'custom'
+        ? `Del ${fmtDayLong(from)} a las ${fmtTime(from)} al ${fmtDayLong(to)} a las ${fmtTime(to)} (hora española)`
+        : `Mes de ${monthLabel(year, month)}`
+
+    pdf.setTitle(sane(`Liquidación — ${driver.name} — ${periodTitle}`))
     pdf.setCreator('Repartos NOVI')
 
     let page: PDFPage = pdf.addPage(A4)
@@ -190,8 +281,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       })
     }
 
-    const newPageIfNeeded = (needed: number) => {
-      if (y - needed < MARGIN + 30) {
+    /** Nueva página cuando no quede espacio; devuelve true si cambió. */
+    const breakPage = (needed: number): boolean => {
+      if (y - needed < BOTTOM) {
         page = pdf.addPage(A4)
         y = PAGE_H - MARGIN
         return true
@@ -199,7 +291,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       return false
     }
 
-    // --- Cabecera ---
+    // --- Cabecera del documento ---
     page.drawRectangle({
       x: MARGIN,
       y: y - 64,
@@ -208,22 +300,37 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       color: HEAD_BG,
     })
     text('Repartos NOVI', MARGIN + 16, y - 26, 16, bold, rgb(1, 1, 1))
-    text('Liquidación mensual de repartos', MARGIN + 16, y - 44, 10, font, rgb(0.75, 0.78, 0.8))
-    textRight(monthLabel(year, month), PAGE_W - MARGIN - 16, y - 26, 12, bold, rgb(1, 1, 1))
-    textRight(
-      `Comisión de la plataforma: ${commissionPct}%`,
-      PAGE_W - MARGIN - 16,
-      y - 44,
-      9,
-      font,
-      rgb(0.75, 0.78, 0.8),
-    )
+    text('Liquidación de repartos', MARGIN + 16, y - 44, 10, font, rgb(0.75, 0.78, 0.8))
+    if (mode === 'custom') {
+      textRight('Periodo personalizado', PAGE_W - MARGIN - 16, y - 26, 11, bold, rgb(1, 1, 1))
+      textRight(
+        `${fmtDayShort(from)} ${fmtTime(from)} → ${fmtDayShort(to)} ${fmtTime(to)}`,
+        PAGE_W - MARGIN - 16,
+        y - 44,
+        8.5,
+        font,
+        rgb(0.75, 0.78, 0.8),
+      )
+    } else {
+      const cap = monthLabel(year, month)
+      textRight(cap.charAt(0).toUpperCase() + cap.slice(1), PAGE_W - MARGIN - 16, y - 26, 12, bold, rgb(1, 1, 1))
+      textRight(
+        `Comisión de la plataforma: ${commissionPct}%`,
+        PAGE_W - MARGIN - 16,
+        y - 44,
+        9,
+        font,
+        rgb(0.75, 0.78, 0.8),
+      )
+    }
     y -= 88
 
-    // Repartidor
+    // Repartidor + periodo
     text('Repartidor', MARGIN, y, 9, font, MUTED)
     text(driver.name, MARGIN, y - 16, 16, bold, INK)
-    y -= 40
+    y -= 32
+    text(periodDetail, MARGIN, y, 9, font, MUTED)
+    y -= 24
 
     // --- Resumen (3 cajas: generado / comisión / a recibir) ---
     const boxW = (CONTENT_W - 12 * 2) / 3
@@ -238,7 +345,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     )
     const boxes: [string, string, ReturnType<typeof rgb>][] = [
       ['Generado', fmtEur(round2(totals.gross)), ACCENT],
-      ['Comisión app', fmtEur(round2(totals.commission)), MUTED],
+      ['Comisión app', fmtEur(round2(totals.commission)), INK],
       ['A recibir', fmtEur(round2(totals.net)), AMBER],
     ]
     boxes.forEach(([label, value, color], i) => {
@@ -249,8 +356,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     })
     y -= boxH + 18
 
+    const rangeText =
+      mode === 'custom' ? 'durante el periodo seleccionado' : `en ${monthLabel(year, month)}`
     text(
-      `Desglose de ${rows.length} reparto${rows.length === 1 ? '' : 's'} entregado${rows.length === 1 ? '' : 's'} en ${monthLabel(year, month)}:`,
+      `Desglose de ${rows.length} reparto${rows.length === 1 ? '' : 's'} entregado${rows.length === 1 ? '' : 's'} ${rangeText}:`,
       MARGIN,
       y,
       10,
@@ -259,44 +368,56 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     y -= 20
 
     // --- Tabla por días ---
+    // Columnas numéricas alineadas a la derecha con separación uniforme
     const C = {
       hora: MARGIN + 2,
-      rest: MARGIN + 46,
+      rest: MARGIN + 50,
       addr: MARGIN + 156,
-      kmR: MARGIN + 330,
-      feeR: MARGIN + 398,
-      comR: MARGIN + 462,
-      netR: PAGE_W - MARGIN - 4,
+      kmR: MARGIN + 331, // derecha "2,4 km"
+      feeR: MARGIN + 385, // derecha tarifa
+      comR: MARGIN + 443, // derecha comisión
+      netR: PAGE_W - MARGIN - 10, // derecha neto
+    }
+    const addrMax = C.kmR - C.addr - 12
+
+    /** Fila de cabecera con las etiquetas de columna. */
+    const drawColHeader = () => {
+      text('HORA', C.hora, y, 7, bold, MUTED)
+      text('RESTAURANTE', C.rest, y, 7, bold, MUTED)
+      text('DIRECCIÓN', C.addr, y, 7, bold, MUTED)
+      textRight('KM', C.kmR, y, 7, bold, MUTED)
+      textRight('TARIFA', C.feeR, y, 7, bold, MUTED)
+      textRight('COMISIÓN', C.comR, y, 7, bold, MUTED)
+      textRight('NETO', C.netR, y, 7, bold, MUTED)
+      line(y - 4, LINE_STRONG, 0.8)
+      y -= 20
     }
 
     const drawDayHeader = (label: string, count: number) => {
-      newPageIfNeeded(34)
+      const cap = label.charAt(0).toUpperCase() + label.slice(1)
       page.drawRectangle({
         x: MARGIN,
-        y: y - 20,
+        y: y - 17,
         width: CONTENT_W,
-        height: 20,
+        height: 17,
         color: ACCENT_SOFT,
       })
-      const cap = label.charAt(0).toUpperCase() + label.slice(1)
-      text(cap, C.hora, y - 14, 9.5, bold, ACCENT)
+      text(cap, C.hora, y - 12, 9.5, bold, ACCENT)
       textRight(
         `${count} reparto${count === 1 ? '' : 's'}`,
-        PAGE_W - MARGIN - 6,
-        y - 14,
+        PAGE_W - MARGIN - 12,
+        y - 12,
         8.5,
         font,
         MUTED,
       )
-      y -= 28
+      y -= 17 + 9 // primera fila 9pt por debajo de la banda
     }
 
     const drawRow = (r: Row) => {
-      newPageIfNeeded(30)
       text(fmtTime(r.deliveredAt), C.hora, y, 9, font, MUTED)
       text(r.restaurantName, C.rest, y, 9.5, bold)
       // Dirección truncada al ancho disponible
-      const addrMax = C.kmR - C.addr - 34
       let addr = r.dropoffAddress ?? '—'
       while (addr.length > 3 && font.widthOfTextAtSize(addr, 8.5) > addrMax) {
         addr = addr.slice(0, -2)
@@ -307,40 +428,67 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       textRight(fmtEur(r.gross), C.feeR, y, 9.5, bold, ACCENT)
       textRight(`-${fmtEur(r.commission)}`, C.comR, y, 8.5, font, MUTED)
       textRight(fmtEur(r.net), C.netR, y, 9.5, bold, AMBER)
-      y -= 16
-      line(y + 4, LINE, 0.5)
+      y -= 19
     }
 
+    /** Banda de subtotal del día (separa del listado de arriba). */
     const drawDaySubtotal = (gross: number, net: number) => {
-      newPageIfNeeded(26)
-      text('Subtotal del día', C.hora, y, 8.5, font, MUTED)
-      textRight(fmtEur(gross), C.feeR, y, 9, bold, ACCENT)
-      textRight(fmtEur(net), C.netR, y, 9, bold, AMBER)
-      y -= 22
+      const bandTop = y + 4
+      const bandBottom = bandTop - 15
+      page.drawRectangle({
+        x: MARGIN,
+        y: bandBottom,
+        width: CONTENT_W,
+        height: 15,
+        color: SUBTLE_BG,
+      })
+      text('Subtotal del día', C.hora, bandBottom + 4.5, 8.5, bold, MUTED)
+      textRight(fmtEur(gross), C.feeR, bandBottom + 4.5, 9, bold, ACCENT)
+      textRight(fmtEur(net), C.netR, bandBottom + 4.5, 9, bold, AMBER)
+      y = bandBottom - 13
     }
 
-    for (const [, dayRows] of byDay) {
-      drawDayHeader(fmtDay(dayRows[0].deliveredAt), dayRows.length)
-      for (const r of dayRows) drawRow(r)
-      const dayGross = dayRows.reduce((s, r) => s + r.gross, 0)
-      const dayNet = dayRows.reduce((s, r) => s + r.net, 0)
-      drawDaySubtotal(round2(dayGross), round2(dayNet))
-    }
-
-    // --- Totales del mes ---
     if (rows.length === 0) {
-      text('Sin repartos entregados este mes.', MARGIN, y, 10, font, MUTED)
+      text(
+        mode === 'custom' ? 'Sin repartos entregados en este periodo.' : 'Sin repartos entregados este mes.',
+        MARGIN,
+        y,
+        10,
+        font,
+        MUTED,
+      )
       y -= 18
     } else {
-      newPageIfNeeded(80)
-      y -= 6
+      drawColHeader()
+      for (const [, dayRows] of byDay) {
+        // Cabecera del día: banda + hueco + primera fila + subtotal
+        if (breakPage(72)) drawColHeader()
+        drawDayHeader(fmtDay(dayRows[0].deliveredAt), dayRows.length)
+        dayRows.forEach((r, i) => {
+          if (breakPage(28)) {
+            drawColHeader()
+          } else if (i > 0) {
+            // Separador ENTRE filas: nunca cruza el texto de arriba ni de abajo
+            line(y + 9, LINE, 0.5)
+          }
+          drawRow(r)
+        })
+        if (breakPage(30)) drawColHeader()
+        const dayGross = dayRows.reduce((s, r) => s + r.gross, 0)
+        const dayNet = dayRows.reduce((s, r) => s + r.net, 0)
+        drawDaySubtotal(round2(dayGross), round2(dayNet))
+      }
+
+      // --- Totales del periodo ---
+      breakPage(84)
+      y -= 4
       line(y, ACCENT, 1.5)
       y -= 20
-      text('Total del mes', MARGIN, y, 11, bold)
+      text(mode === 'custom' ? 'Total del periodo' : 'Total del mes', MARGIN, y, 11, bold)
       textRight(fmtEur(round2(totals.gross)), C.feeR, y, 11, bold, ACCENT)
       textRight(`-${fmtEur(round2(totals.commission))}`, C.comR, y, 10, font, MUTED)
       textRight(fmtEur(round2(totals.net)), C.netR, y, 11, bold, AMBER)
-      y -= 24
+      y -= 16
       text(
         `${rows.length} reparto${rows.length === 1 ? '' : 's'} · comisión de la plataforma ${commissionPct}% · neto = generado - comisión`,
         MARGIN,
@@ -349,7 +497,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
         font,
         MUTED,
       )
-      y -= 16
+      y -= 12
     }
 
     // --- Pie: fecha de emisión y paginación ---
@@ -358,6 +506,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       day: 'numeric',
       month: 'long',
       year: 'numeric',
+      timeZone: TZ,
     })
     pages.forEach((p, i) => {
       const footer = `Documento generado automáticamente por Repartos NOVI · ${issued} · Página ${i + 1} de ${pages.length}`
@@ -371,8 +520,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       })
     })
 
+    const slug = driver.name.toLowerCase().replace(/\s+/g, '-')
+    const filename =
+      mode === 'custom'
+        ? `liquidacion-${slug}-${madridStamp(from)}_${madridStamp(to)}.pdf`
+        : `liquidacion-${slug}-${year}-${String(month).padStart(2, '0')}.pdf`
     const bytes = await pdf.save()
-    const filename = `liquidacion-${driver.name.toLowerCase().replace(/\s+/g, '-')}-${year}-${String(month).padStart(2, '0')}.pdf`
     return new NextResponse(bytes as unknown as BodyInit, {
       status: 200,
       headers: {

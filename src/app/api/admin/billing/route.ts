@@ -4,12 +4,16 @@ import { requireAdminFromRequest } from '@/lib/session'
 import { getCommissionPct, applyCommission } from '@/lib/settings'
 
 /**
- * Liquidación mensual para el administrador:
+ * Liquidación para el administrador (mes natural o periodo personalizado):
+ *
+ *   GET /api/admin/billing?month=YYYY-MM
+ *   GET /api/admin/billing?from=<ISO UTC>&to=<ISO UTC>
+ *   (ej. de jueves 19:00 a viernes 13:00, para pagar por turnos)
  *
  *   - Total de repartos y tarifa de CADA local (bruto)
  *   - Desglose por repartidor: lo que ha GENERADO (tarifa real), la COMISIÓN
  *     que se queda la plataforma y lo que VA A RECIBIR (bruto - comisión)
- *   - Comisión total del mes = ingresos de la app
+ *   - Comisión total del periodo = ingresos de la app
  *   - Resumen global por repartidor (todos los locales juntos)
  *
  * Se calcula sobre los repartos ENTREGADOS (status DELIVERED) usando la
@@ -23,24 +27,63 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url)
     const monthParam = searchParams.get('month') || ''
+    const fromParam = searchParams.get('from') || ''
+    const toParam = searchParams.get('to') || ''
 
-    // Validar YYYY-MM; por defecto, el mes actual
-    let year: number
-    let month: number // 1-12
-    if (/^\d{4}-\d{2}$/.test(monthParam)) {
-      year = Number(monthParam.slice(0, 4))
-      month = Number(monthParam.slice(5, 7))
-      if (month < 1 || month > 12 || year < 2020 || year > 2100) {
-        return NextResponse.json({ error: 'Mes no válido' }, { status: 400 })
+    const MAX_PERIOD_MS = 366 * 24 * 60 * 60 * 1000
+    let from: Date
+    let to: Date
+    let mode: 'month' | 'custom' = 'month'
+    let monthKey: string | null = null
+
+    if (fromParam || toParam) {
+      // Periodo personalizado (p. ej. un turno: jue 19:00 → vie 13:00).
+      // El cliente envía instantes UTC (toISOString) para evitar depender
+      // de la zona horaria del servidor.
+      const fromD = new Date(fromParam)
+      const toD = new Date(toParam)
+      if (
+        !fromParam ||
+        !toParam ||
+        Number.isNaN(fromD.getTime()) ||
+        Number.isNaN(toD.getTime())
+      ) {
+        return NextResponse.json({ error: 'Periodo no válido' }, { status: 400 })
       }
+      if (fromD >= toD) {
+        return NextResponse.json(
+          { error: 'La fecha de inicio debe ser anterior a la de fin' },
+          { status: 400 },
+        )
+      }
+      if (toD.getTime() - fromD.getTime() > MAX_PERIOD_MS) {
+        return NextResponse.json(
+          { error: 'El periodo no puede abarcar más de un año' },
+          { status: 400 },
+        )
+      }
+      mode = 'custom'
+      from = fromD
+      to = toD
     } else {
-      const now = new Date()
-      year = now.getUTCFullYear()
-      month = now.getUTCMonth() + 1
+      // Mes natural: validar YYYY-MM; por defecto, el mes actual
+      let year: number
+      let month: number // 1-12
+      if (/^\d{4}-\d{2}$/.test(monthParam)) {
+        year = Number(monthParam.slice(0, 4))
+        month = Number(monthParam.slice(5, 7))
+        if (month < 1 || month > 12 || year < 2020 || year > 2100) {
+          return NextResponse.json({ error: 'Mes no válido' }, { status: 400 })
+        }
+      } else {
+        const now = new Date()
+        year = now.getUTCFullYear()
+        month = now.getUTCMonth() + 1
+      }
+      monthKey = `${year}-${String(month).padStart(2, '0')}`
+      from = new Date(Date.UTC(year, month - 1, 1))
+      to = new Date(Date.UTC(year, month, 1))
     }
-    const monthKey = `${year}-${String(month).padStart(2, '0')}`
-    const from = new Date(Date.UTC(year, month - 1, 1))
-    const to = new Date(Date.UTC(year, month, 1))
 
     const commissionPct = await getCommissionPct()
 
@@ -206,6 +249,11 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       month: monthKey,
+      period: {
+        mode,
+        from: mode === 'custom' ? from.toISOString() : null,
+        to: mode === 'custom' ? to.toISOString() : null,
+      },
       commissionPct,
       totals: {
         count: totalCount,

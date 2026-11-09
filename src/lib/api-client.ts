@@ -137,17 +137,37 @@ export interface BillingRestaurantRow {
   byDriver: BillingDriverRow[]
 }
 
+/** Modo del periodo consultado en la liquidación. */
+export interface BillingPeriodInfo {
+  mode: 'month' | 'custom'
+  /** Inicio del periodo (ISO UTC) — solo en modo custom. */
+  from: string | null
+  /** Fin del periodo (ISO UTC, exclusivo... o inclusivo según consulta) — solo en modo custom. */
+  to: string | null
+}
+
+/** Parámetros de periodo para la liquidación y el PDF:
+ *  - { month: 'YYYY-MM' } → mes natural
+ *  - { from: ISO, to: ISO } → periodo personalizado (p. ej. un turno) */
+export interface BillingPeriodQuery {
+  month?: string
+  from?: string
+  to?: string
+}
+
 export interface BillingResponse {
-  month: string
+  /** Mes natural (YYYY-MM) o null si es un periodo personalizado. */
+  month: string | null
+  period: BillingPeriodInfo
   /** Comisión (%) global configurada. */
   commissionPct: number
   totals: {
     count: number
-    /** Bruto total del mes. */
+    /** Bruto total del periodo. */
     totalEur: number
-    /** Ingresos de la app por comisiones (mes). */
+    /** Ingresos de la app por comisiones (periodo). */
     commissionEur: number
-    /** Total a repartidores (mes). */
+    /** Total a repartidores (periodo). */
     netEur: number
   }
   restaurants: BillingRestaurantRow[]
@@ -168,6 +188,15 @@ export interface Lead {
   convertedAt: string | null
   convertedRestaurantId: string | null
   convertedRestaurantName: string | null
+}
+
+/** Query string de periodo para billing y su PDF (month o from+to). */
+function billingParams(p: BillingPeriodQuery): string {
+  const params = new URLSearchParams()
+  if (p.month) params.set('month', p.month)
+  if (p.from) params.set('from', p.from)
+  if (p.to) params.set('to', p.to)
+  return params.toString()
 }
 
 export const api = {
@@ -411,12 +440,13 @@ export const api = {
       },
     ),
 
-  // Liquidación mensual (admin): totales por local y por repartidor
-  adminBilling: (month: string) =>
-    request<BillingResponse>(`/api/admin/billing?month=${encodeURIComponent(month)}`),
+  // Liquidación (admin): mes natural o periodo personalizado (p. ej. un
+  // turno de jue 19:00 → vie 13:00). from/to van en ISO UTC.
+  adminBilling: (period: BillingPeriodQuery) =>
+    request<BillingResponse>(`/api/admin/billing?${billingParams(period)}`),
 
   // URL del PDF de liquidación de un repartidor (se abre/descarga con la
   // cookie de sesión del admin; el navegador la envía automáticamente).
-  adminDriverBillingPdfUrl: (driverId: string, month: string) =>
-    `/api/admin/billing/${encodeURIComponent(driverId)}/pdf?month=${encodeURIComponent(month)}`,
+  adminDriverBillingPdfUrl: (driverId: string, period: BillingPeriodQuery) =>
+    `/api/admin/billing/${encodeURIComponent(driverId)}/pdf?${billingParams(period)}`,
 }
