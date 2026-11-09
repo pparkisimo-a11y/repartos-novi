@@ -1,10 +1,11 @@
 /**
- * Ajustes globales de la plataforma.
+ * Ajustes globales de la aplicación.
  *
- * Por ahora el único ajuste es la COMISIÓN por reparto que se lleva el admin:
- * un PORCENTAJE de la tarifa que se descuenta para mostrar a los repartidores
- * el importe neto (lo que cobran). El admin y el restaurante ven siempre la
- * tarifa real (lo que cobra la plataforma / lo que paga el local).
+ * Por ahora el único ajuste es la COMISIÓN DE GESTIÓN por reparto (se la
+ * queda el organizador del servicio): un PORCENTAJE de la tarifa que se
+ * descuenta para mostrar a los repartidores el importe neto (lo que cobran).
+ * El admin y el restaurante ven siempre la tarifa real (lo que gestiona el
+ * organizador / lo que paga el local).
  *
  * Se guarda en la tabla Setting (clave-valor). Si no hay fila, el porcentaje
  * es 0.

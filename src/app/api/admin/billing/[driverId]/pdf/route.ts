@@ -315,7 +315,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       const cap = monthLabel(year, month)
       textRight(cap.charAt(0).toUpperCase() + cap.slice(1), PAGE_W - MARGIN - 16, y - 26, 12, bold, rgb(1, 1, 1))
       textRight(
-        `Comisión de la plataforma: ${commissionPct}%`,
+        `Comisión de gestión: ${commissionPct}%`,
         PAGE_W - MARGIN - 16,
         y - 44,
         9,
@@ -345,7 +345,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     )
     const boxes: [string, string, ReturnType<typeof rgb>][] = [
       ['Generado', fmtEur(round2(totals.gross)), ACCENT],
-      ['Comisión app', fmtEur(round2(totals.commission)), INK],
+      ['Comisión gestión', fmtEur(round2(totals.commission)), INK],
       ['A recibir', fmtEur(round2(totals.net)), AMBER],
     ]
     boxes.forEach(([label, value, color], i) => {
@@ -502,7 +502,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       textRight(fmtEur(round2(totals.net)), C.netR, y, 11, bold, AMBER)
       y -= 16
       text(
-        `${rows.length} reparto${rows.length === 1 ? '' : 's'} · comisión de la plataforma ${commissionPct}% · neto = generado - comisión`,
+        `${rows.length} reparto${rows.length === 1 ? '' : 's'} · comisión de gestión ${commissionPct}% · neto = generado - comisión`,
         MARGIN,
         y,
         8.5,

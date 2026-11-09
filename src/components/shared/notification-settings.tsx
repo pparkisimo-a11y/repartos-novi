@@ -49,7 +49,7 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
 const ROLE_HINT: Record<NotifRole, string> = {
   driver: 'Elige qué avisos quieres recibir mientras repartes.',
   restaurant: 'Elige de qué quieres que te avisemos sobre tus pedidos.',
-  admin: 'Elige de qué quieres que te avisemos sobre la actividad de la plataforma.',
+  admin: 'Elige de qué quieres que te avisemos sobre la actividad del servicio.',
 }
 
 /**

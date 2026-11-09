@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Repartos NOVI — Gestión de reparto nocturno",
   description:
-    "Plataforma sencilla para gestionar el reparto entre varios restaurantes y un repartidor. Solicita, acepta, recoge y entrega. Historial y estadísticas incluidas.",
+    "Sencilla gestión del reparto entre varios restaurantes y un repartidor. Solicita, acepta, recoge y entrega. Historial y estadísticas incluidas.",
   keywords: ["reparto", "kebab", "delivery", "repartidor", "restaurantes", "novi"],
   authors: [{ name: "Repartos NOVI" }],
   // PWA: instalable como app independiente (iPhone "Añadir a pantalla de inicio")

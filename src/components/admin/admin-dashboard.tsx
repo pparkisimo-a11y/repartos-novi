@@ -237,7 +237,7 @@ function ResumenView({
       tone: 'bg-amber-100 text-amber-600',
     },
     {
-      label: 'Comisión app (mes)',
+      label: 'Comisión gestión (mes)',
       value: billingData ? formatEur(billingData.totals.commissionEur) : '…',
       icon: PiggyBank,
       tone: 'bg-primary/10 text-primary',

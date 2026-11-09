@@ -377,7 +377,7 @@ export function BillingView() {
                   <PiggyBank className="h-5 w-5 sm:h-6 sm:w-6" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground sm:text-sm">Comisión app</p>
+                  <p className="text-xs text-muted-foreground sm:text-sm">Comisión gestión</p>
                   <p className="text-xl font-bold leading-tight tabular-nums text-primary sm:text-2xl">
                     {formatEur(data.totals.commissionEur)}
                   </p>
@@ -412,7 +412,7 @@ export function BillingView() {
             </Card>
           </div>
 
-          {/* Reparto del dinero: repartidores vs app */}
+          {/* Reparto del dinero: repartidores vs comisión de gestión */}
           {data.totals.totalEur > 0 && (
             <Card className="border-border bg-muted/30">
               <CardContent className="space-y-2.5 p-4 sm:p-5">
@@ -425,7 +425,7 @@ export function BillingView() {
                     </span>
                     <span className="inline-flex items-center gap-1.5">
                       <span className="h-2.5 w-2.5 rounded-sm bg-primary" />
-                      App {formatEur(data.totals.commissionEur)}
+                      Gestión {formatEur(data.totals.commissionEur)}
                     </span>
                   </span>
                 </div>
@@ -456,8 +456,8 @@ export function BillingView() {
                   Lo que va a recibir cada repartidor
                 </CardTitle>
                 <p className="text-xs text-muted-foreground sm:text-sm">
-                  Todos los locales juntos en {periodLabel}: generado, comisión de la
-                  app ({data.commissionPct}%) y neto a recibir. Pulsa en un repartidor para ver su
+                  Todos los locales juntos en {periodLabel}: generado, comisión de
+                  gestión ({data.commissionPct}%) y neto a recibir. Pulsa en un repartidor para ver su
                   desglose día a día o descarga su liquidación en PDF.
                 </p>
               </CardHeader>
@@ -484,7 +484,7 @@ export function BillingView() {
                         <th className="px-5 py-2.5 font-semibold">Repartidor</th>
                         <th className="px-5 py-2.5 text-right font-semibold">Repartos</th>
                         <th className="px-5 py-2.5 text-right font-semibold">Generado</th>
-                        <th className="px-5 py-2.5 text-right font-semibold">Comisión app</th>
+                        <th className="px-5 py-2.5 text-right font-semibold">Comisión gestión</th>
                         <th className="px-5 py-2.5 text-right font-semibold">A recibir</th>
                         <th className="px-5 py-2.5 text-right font-semibold">
                           <span className="sr-only">Liquidación PDF</span>
@@ -607,7 +607,7 @@ export function BillingView() {
                       <span className="text-xs text-muted-foreground">
                         {r.count} reparto{r.count === 1 ? '' : 's'} ·{' '}
                         <span className="text-primary">
-                          app {formatEur(r.commissionEur)}
+                          gestión {formatEur(r.commissionEur)}
                         </span>
                       </span>
                       <span className="text-sm">
@@ -727,9 +727,10 @@ export function BillingView() {
 }
 
 /**
- * Comisión de la plataforma: porcentaje que el admin descuenta de cada
- * reparto. El admin ve la tarifa real; repartidores y restaurantes ven la
- * tarifa ya descontada (lo que cobran / lo que pagan).
+ * Comisión de gestión: porcentaje que se descuenta de cada reparto
+ * (se la queda el organizador del servicio). El admin ve la tarifa real;
+ * repartidores y restaurantes ven la tarifa ya descontada (lo que cobran /
+ * lo que pagan).
  */
 function CommissionCard() {
   const qc = useQueryClient()
@@ -784,7 +785,7 @@ function CommissionCard() {
           </span>
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm">
-              Comisión de la plataforma
+              Comisión de gestión
             </p>
             {editing ? (
               <form onSubmit={handleSave} className="mt-1 flex items-center gap-2">
