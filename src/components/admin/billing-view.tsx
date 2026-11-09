@@ -119,9 +119,10 @@ export function BillingView() {
   const months = recentMonths(6)
   const [month, setMonth] = useState(months[0])
   const [mode, setMode] = useState<PeriodMode>('month')
-  // Rango personalizado (valores de <input type="datetime-local">)
-  const [fromDt, setFromDt] = useState(() => toLocalInputValue(lastShiftRange()[0]))
-  const [toDt, setToDt] = useState(() => toLocalInputValue(lastShiftRange()[1]))
+  // Rango personalizado (valores de <input type="datetime-local">):
+  // por defecto HOY (de 00:00 hasta ahora)
+  const [fromDt, setFromDt] = useState(() => toLocalInputValue(startOfLocalDay(new Date())))
+  const [toDt, setToDt] = useState(() => toLocalInputValue(new Date()))
   // Repartidores con el desglose día a día expandido (múltiples a la vez)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   // driverId cuyo PDF se está generando (para el spinner del botón)
@@ -247,11 +248,18 @@ export function BillingView() {
               if (v === 'month' || v === 'custom') setMode(v)
             }}
             aria-label="Tipo de periodo de la liquidación"
+            className="max-w-full"
           >
-            <ToggleGroupItem value="month" className="px-3 text-xs sm:text-sm">
+            <ToggleGroupItem
+              value="month"
+              className="flex-none whitespace-nowrap px-3 text-xs sm:text-sm"
+            >
               Mes
             </ToggleGroupItem>
-            <ToggleGroupItem value="custom" className="px-3 text-xs sm:text-sm">
+            <ToggleGroupItem
+              value="custom"
+              className="flex-none whitespace-nowrap px-3 text-xs sm:text-sm"
+            >
               Periodo personalizado
             </ToggleGroupItem>
           </ToggleGroup>
