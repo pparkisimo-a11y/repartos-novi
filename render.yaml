@@ -1,5 +1,12 @@
 # Render Blueprint (documentación del servicio)
 # El servicio real se crea/actualiza vía la API de Render.
+#
+# NOTA sobre el schema de Prisma:
+#   El repositorio mantiene `prisma/schema.prisma` con `provider = "sqlite"` para
+#   el sandbox de desarrollo local (ver .env → DATABASE_URL=file:...). En producción
+#   usamos PostgreSQL (Supabase), así que el build swap-ea el provider a postgresql
+#   ANTES de `prisma db push`. Así hay una sola fuente de verdad para los modelos
+#   y nunca se desfasan sandbox vs prod.
 services:
   - type: web
     name: repartos-novi
@@ -7,7 +14,7 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    buildCommand: npm install && npx prisma db push && npm run build
+    buildCommand: npm install && sed -i -E 's/(provider[[:space:]]*=[[:space:]]*)"sqlite"/\1"postgresql"/' prisma/schema.prisma && npx prisma generate && npx prisma db push && npm run build
     startCommand: node server.js
     healthCheckPath: /
     envVars:
