@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { LogOut, Menu, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Logo } from '@/components/brand/logo'
@@ -35,6 +35,17 @@ export function AppShell({
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  // Cerrar el drawer móvil con Escape (accesibilidad: el lector de pantalla
+  // anuncia el drawer como diálogo y debe poder cerrarse con el teclado).
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen])
+
   const sidebar = (
     <div className="flex h-full flex-col">
       {/* Brand — respeta el notch / Dynamic Island en móvil */}
@@ -53,6 +64,7 @@ export function AppShell({
           return (
             <button
               key={item.id}
+              type="button"
               onClick={() => {
                 onChangeView(item.id)
                 setMobileOpen(false)
@@ -89,6 +101,7 @@ export function AppShell({
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.75rem)' }}
       >
         <button
+          type="button"
           onClick={onLogout}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
         >
@@ -108,13 +121,20 @@ export function AppShell({
 
       {/* Mobile slide-over */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div
+          className="fixed inset-0 z-40 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menú de navegación"
+        >
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
           />
           <aside className="absolute inset-y-0 left-0 w-64 bg-[#1A1A1A] shadow-xl">
             <button
+              type="button"
               onClick={() => setMobileOpen(false)}
               className="absolute right-3 top-4 rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
               aria-label="Cerrar menú"
@@ -134,6 +154,7 @@ export function AppShell({
           style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
         >
           <button
+            type="button"
             onClick={() => setMobileOpen(true)}
             className="rounded-lg p-1.5 text-foreground hover:bg-muted"
             aria-label="Abrir menú"

@@ -71,7 +71,7 @@ export function AddressAutocomplete({
       }
     }
     document.addEventListener('mousedown', onDocMouseDown)
-    document.addEventListener('touchstart', onDocMouseDown)
+    document.addEventListener('touchstart', onDocMouseDown, { passive: true })
     return () => {
       document.removeEventListener('mousedown', onDocMouseDown)
       document.removeEventListener('touchstart', onDocMouseDown)

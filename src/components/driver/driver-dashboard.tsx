@@ -339,6 +339,7 @@ function OnlineToggle({
         type="button"
         role="switch"
         aria-checked={available}
+        aria-label={available ? 'En línea: pulsa para pausar' : 'En pausa: pulsa para ponerte en línea'}
         onClick={onToggle}
         className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
           available ? 'bg-emerald-500' : 'bg-zinc-300'
@@ -741,7 +742,7 @@ function SuperSupervisionView({
                     {d.status === 'PICKED_UP' && (
                       <p className="mt-1 text-xs text-muted-foreground">
                         ⚠ Ya está repartiendo — no se puede robar. Si tarda
-                        mucho, contacta con <strong>{driverLabel}</strong>.
+                        mucho, contacta con <strong>{driverLabel ?? 'el repartidor'}</strong>.
                       </p>
                     )}
                   </div>

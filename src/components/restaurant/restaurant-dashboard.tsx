@@ -639,7 +639,7 @@ function ActiveDeliveryCardBody({
                   <span className="truncate">
                     Entrega en: <strong className="text-foreground">{delivery.dropoffAddress || '—'}</strong>
                     {delivery.distanceKm != null && (
-                      <span className="ml-1.5 text-xs">({formatKm(delivery.distanceKm)})</span>
+                      <span className="text-xs"> ({formatKm(delivery.distanceKm)})</span>
                     )}
                   </span>
                 </span>

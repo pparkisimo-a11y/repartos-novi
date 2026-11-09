@@ -49,9 +49,11 @@ export const viewport: Viewport = {
   themeColor: "#121212",
   width: "device-width",
   initialScale: 1,
-  // Experiencia tipo app: sin zoom con pellizco (en la app instalada iOS lo permite igualmente)
-  maximumScale: 1,
-  userScalable: false,
+  // Permitir zoom para accesibilidad (WCAG 1.4.4). Los usuarios con baja
+  // visión deben poder hacer pellizco/zoom. iOS Safari lo permite igualmente
+  // en la PWA instalada; Android Chrome respeta estos valores.
+  maximumScale: 5,
+  userScalable: true,
   // Contenido a pantalla completa en iPhones con notch / Dynamic Island
   viewportFit: "cover",
   // Android/Chrome: al abrir el teclado el viewport se reajusta (en vez de

@@ -268,7 +268,7 @@ export function MapView({
       <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 p-3">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Coordenadas</p>
-          <p className="font-mono text-xs whitespace-nowrap">
+          <p className="truncate font-mono text-xs whitespace-nowrap">
             {lat.toFixed(5)}, {lng.toFixed(5)}
           </p>
         </div>

@@ -69,7 +69,7 @@ export function CollapsibleOrderCard({
         <span
           className={`hidden sm:inline ${expanded ? 'text-white/80' : 'text-muted-foreground'}`}
         >
-          Tiempo:
+          Tiempo:{' '}
         </span>
         <span className="font-bold tabular-nums">{elapsedMin} min</span>
         {collapsible && (

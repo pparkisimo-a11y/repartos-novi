@@ -267,8 +267,8 @@ function ResumenView({
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold">
-                          {d.restaurantName}
-                          <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                          {d.restaurantName}{' '}
+                          <span className="font-mono text-xs font-normal text-muted-foreground">
                             #{d.id.slice(-6).toUpperCase()}
                           </span>
                         </p>

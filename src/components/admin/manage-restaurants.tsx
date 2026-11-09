@@ -830,7 +830,7 @@ function EditFeeDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Euro className="h-5 w-5 text-primary" />
-            Tarifa de {target?.name ?? ''}
+            Tarifa {target ? `de ${target.name}` : 'del restaurante'}
           </DialogTitle>
           <DialogDescription>
             Define la tarifa de reparto de este local. Se aplica al recoger cada
@@ -981,7 +981,7 @@ function EditScheduleDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" />
-            Horario de {target?.name ?? ''}
+            Horario {target ? `de ${target.name}` : 'del restaurante'}
           </DialogTitle>
           <DialogDescription>
             Días y franja horaria en los que este local puede pedir reparto.
@@ -1002,6 +1002,7 @@ function EditScheduleDialog({
                     type="button"
                     onClick={() => toggleDay(d)}
                     aria-pressed={selected}
+                    aria-label={`${DAY_LABELS[d]}: ${selected ? 'seleccionado' : 'no seleccionado'}`}
                     className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2.5 text-sm font-medium transition-colors active:scale-95 ${
                       selected
                         ? 'border-primary bg-primary text-white'
@@ -1015,7 +1016,7 @@ function EditScheduleDialog({
             </div>
             <p className="text-xs text-muted-foreground">
               {days.length === 0
-                ? 'Sin selección = todos los días (pero necesita franja horaria).'
+                ? 'Sin selección = todos los días.'
                 : `${days.length} día${days.length === 1 ? '' : 's'} seleccionado${days.length === 1 ? '' : 's'}.`}
             </p>
           </div>
@@ -1029,7 +1030,6 @@ function EditScheduleDialog({
                 type="time"
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
-                  disabled={days.length === 0 && !end}
               />
             </div>
             <div className="space-y-2">
@@ -1039,7 +1039,6 @@ function EditScheduleDialog({
                 type="time"
                 value={end}
                 onChange={(e) => setEnd(e.target.value)}
-                disabled={days.length === 0 && !start}
               />
             </div>
           </div>

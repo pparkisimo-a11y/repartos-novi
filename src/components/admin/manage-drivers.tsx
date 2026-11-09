@@ -41,7 +41,7 @@ import {
 import { toast } from 'sonner'
 import { api, ApiError, type AdminDriver } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
-import { parseSchedule, scheduleLabel, DAY_SHORT } from '@/lib/schedule'
+import { parseSchedule, scheduleLabel, DAY_SHORT, DAY_LABELS } from '@/lib/schedule'
 
 export function ManageDrivers({ currentDriverId }: { currentDriverId?: string }) {
   const qc = useQueryClient()
@@ -195,6 +195,9 @@ export function ManageDrivers({ currentDriverId }: { currentDriverId?: string })
                     </div>
                     <button
                       type="button"
+                      role="switch"
+                      aria-checked={d.isSuperDriver}
+                      aria-label={`Súper repartidor: ${d.isSuperDriver ? 'activado, pulsa para desactivar' : 'desactivado, pulsa para activar'}`}
                       onClick={async () => {
                         try {
                           await api.adminToggleSuperDriver(d.id, !d.isSuperDriver)
@@ -208,7 +211,6 @@ export function ManageDrivers({ currentDriverId }: { currentDriverId?: string })
                           toast.error(err instanceof ApiError ? err.message : 'Error')
                         }
                       }}
-                      aria-pressed={d.isSuperDriver}
                       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                         d.isSuperDriver ? 'bg-primary' : 'bg-muted-foreground/30'
                       }`}
@@ -589,7 +591,7 @@ function EditDriverScheduleDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" />
-            Horario de {target?.name ?? ''}
+            Horario {target ? `de ${target.name}` : 'del repartidor'}
           </DialogTitle>
           <DialogDescription>
             Días y franja horaria en los que este repartidor trabaja. Fuera de
@@ -609,6 +611,7 @@ function EditDriverScheduleDialog({
                     type="button"
                     onClick={() => toggleDay(d)}
                     aria-pressed={selected}
+                    aria-label={`${DAY_LABELS[d]}: ${selected ? 'seleccionado' : 'no seleccionado'}`}
                     className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2.5 text-sm font-medium transition-colors active:scale-95 ${
                       selected
                         ? 'border-primary bg-primary text-white'

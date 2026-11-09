@@ -504,8 +504,8 @@ function CommissionCard() {
               </form>
             ) : (
               <p className="text-xl font-bold leading-tight tabular-nums sm:text-2xl">
-                {commissionPct}%
-                <span className="ml-1.5 text-sm font-normal text-muted-foreground">de comisión</span>
+                {commissionPct}%{' '}
+                <span className="text-sm font-normal text-muted-foreground">de comisión</span>
               </p>
             )}
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -526,8 +526,7 @@ function CommissionCard() {
               Cancelar
             </Button>
             <Button
-              type="submit"
-              form=""
+              type="button"
               size="sm"
               onClick={handleSave}
               disabled={saving}

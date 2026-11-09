@@ -160,8 +160,8 @@ export function HistoryView({ fixedScope }: { fixedScope?: 'all' }) {
                   <span className="col-span-2 font-mono font-semibold text-foreground">
                     Tiempo total: {formatDuration(d.totalMs)}
                     {d.fee != null && (
-                      <span className="ml-2 font-sans text-emerald-600">
-                        · Tarifa {formatEur(d.fee)}
+                      <span className="font-sans text-emerald-600">
+                        {' '}· Tarifa {formatEur(d.fee)}
                       </span>
                     )}
                   </span>
