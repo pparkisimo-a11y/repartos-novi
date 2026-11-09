@@ -63,6 +63,20 @@ export async function GET(req: Request) {
       commissionEur: number // comisión de la plataforma
       netEur: number // lo que recibe el repartidor
     }
+    // Resumen global por repartidor: añade el detalle reparto a reparto
+    // (para el desglose día a día del admin)
+    interface GlobalDriverAgg extends DriverAgg {
+      deliveries: {
+        id: string
+        deliveredAt: Date
+        restaurantName: string
+        dropoffAddress: string | null
+        distanceKm: number | null
+        grossEur: number
+        commissionEur: number
+        netEur: number
+      }[]
+    }
     interface RestaurantAgg {
       restaurantId: string
       restaurantName: string
@@ -74,8 +88,7 @@ export async function GET(req: Request) {
     }
 
     const restaurantsMap = new Map<string, RestaurantAgg>()
-    const globalDriversMap = new Map<string, DriverAgg>()
-
+    const globalDriversMap = new Map<string, GlobalDriverAgg>()
     let totalCount = 0
     let grandTotalEur = 0
     let grandCommissionEur = 0
@@ -139,11 +152,23 @@ export async function GET(req: Request) {
           totalEur: 0,
           commissionEur: 0,
           netEur: 0,
+          deliveries: [],
         }
       globalEntry.count += 1
       globalEntry.totalEur += gross
       globalEntry.commissionEur += commission
       globalEntry.netEur += net
+      // Detalle para el desglose día a día (solo en el resumen global)
+      globalEntry.deliveries.push({
+        id: d.id,
+        deliveredAt: d.deliveredAt as Date,
+        restaurantName: d.restaurant.name,
+        dropoffAddress: d.dropoffAddress,
+        distanceKm: d.distanceKm,
+        grossEur: gross,
+        commissionEur: commission,
+        netEur: net,
+      })
       globalDriversMap.set(dKey, globalEntry)
 
       restaurantsMap.set(rKey, entry)

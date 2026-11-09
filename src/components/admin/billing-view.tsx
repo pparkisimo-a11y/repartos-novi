@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Receipt,
@@ -13,6 +13,10 @@ import {
   Settings,
   Wallet,
   PiggyBank,
+  ChevronDown,
+  FileDown,
+  CalendarDays,
+  MapPin,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -26,7 +30,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { api, ApiError } from '@/lib/api-client'
+import {
+  api,
+  ApiError,
+  getAuthToken,
+  type BillingDriverDetail,
+} from '@/lib/api-client'
 import { formatEur, feeExplanation } from '@/lib/fees'
 
 /** Últimos N meses como opciones YYYY-MM (más reciente primero). */
@@ -58,6 +67,57 @@ function monthLabel(key: string): string {
 export function BillingView() {
   const months = recentMonths(6)
   const [month, setMonth] = useState(months[0])
+  // Repartidores con el desglose día a día expandido (múltiples a la vez)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // driverId cuyo PDF se está generando (para el spinner del botón)
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null)
+
+  const toggleExpanded = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  /** Descarga la liquidación del repartidor en PDF (fetch + blob para que
+   *  funcione también en iframes, donde la cookie httpOnly no llega). */
+  async function downloadPdf(dr: BillingDriverDetail) {
+    if (!dr.driverId) return
+    setPdfBusy(dr.driverId)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(api.adminDriverBillingPdfUrl(dr.driverId, month), {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new ApiError(body?.error || 'No se pudo generar el PDF', res.status)
+      }
+      const blob = await res.blob()
+      // Nombre de archivo: del Content-Disposition del servidor, o generado
+      const cd = res.headers.get('Content-Disposition') || ''
+      const match = cd.match(/filename="(.+)"/)
+      const filename =
+        match?.[1] ??
+        `liquidacion-${dr.driverName.toLowerCase().replace(/\s+/g, '-')}-${month}.pdf`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Liquidación en PDF descargada', {
+        description: `${dr.driverName} · ${monthLabel(month)}`,
+      })
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error al generar el PDF')
+    } finally {
+      setPdfBusy(null)
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'billing', month],
@@ -187,7 +247,7 @@ export function BillingView() {
             </Card>
           )}
 
-          {/* Resumen por repartidor */}
+          {/* Resumen por repartidor (expandible: detalle día a día) */}
           {data.byDriver.length > 0 ? (
             <Card className="overflow-hidden p-0 shadow-sm">
               <CardHeader className="pb-2">
@@ -197,41 +257,26 @@ export function BillingView() {
                 </CardTitle>
                 <p className="text-xs text-muted-foreground sm:text-sm">
                   Todos los locales juntos en {monthLabel(data.month)}: generado, comisión de la
-                  app ({data.commissionPct}%) y neto a recibir.
+                  app ({data.commissionPct}%) y neto a recibir. Pulsa en un repartidor para ver su
+                  desglose día a día o descarga su liquidación en PDF.
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-                {/* Móvil: filas apiladas (sin scroll horizontal) */}
+                {/* Móvil: filas apiladas expandibles (sin scroll horizontal) */}
                 <div className="divide-y divide-border md:hidden">
                   {data.byDriver.map((dr) => (
-                    <div
+                    <DriverMobileRow
                       key={dr.driverId ?? 'none'}
-                      className="flex items-center justify-between gap-3 px-4 py-3"
-                    >
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <Bike className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{dr.driverName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {dr.count} reparto{dr.count === 1 ? '' : 's'} · generado{' '}
-                            <span className="font-semibold text-foreground">
-                              {formatEur(dr.totalEur)}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-bold leading-tight tabular-nums text-amber-600">
-                          {formatEur(dr.netEur)}
-                        </p>
-                        <p className="text-[11px] leading-tight text-muted-foreground">
-                          a recibir
-                        </p>
-                      </div>
-                    </div>
+                      dr={dr}
+                      month={month}
+                      expanded={expanded.has(dr.driverId ?? 'none')}
+                      onToggle={() => toggleExpanded(dr.driverId ?? 'none')}
+                      onPdf={() => downloadPdf(dr)}
+                      pdfBusy={pdfBusy === (dr.driverId ?? 'none')}
+                    />
                   ))}
                 </div>
-                {/* Escritorio: tabla completa */}
+                {/* Escritorio: tabla completa expandible */}
                 <div className="hidden overflow-x-auto md:block">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/80 backdrop-blur">
@@ -241,31 +286,81 @@ export function BillingView() {
                         <th className="px-5 py-2.5 text-right font-semibold">Generado</th>
                         <th className="px-5 py-2.5 text-right font-semibold">Comisión app</th>
                         <th className="px-5 py-2.5 text-right font-semibold">A recibir</th>
+                        <th className="px-5 py-2.5 text-right font-semibold">
+                          <span className="sr-only">Liquidación PDF</span>
+                          PDF
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.byDriver.map((dr) => (
-                        <tr key={dr.driverId ?? 'none'} className="border-t border-border">
-                          <td className="px-5 py-3 font-medium">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Bike className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              {dr.driverName}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
-                            {dr.count}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3 text-right font-semibold tabular-nums">
-                            {formatEur(dr.totalEur)}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums text-muted-foreground">
-                            {formatEur(dr.commissionEur)}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3 text-right font-bold tabular-nums text-amber-600">
-                            {formatEur(dr.netEur)}
-                          </td>
-                        </tr>
-                      ))}
+                      {data.byDriver.map((dr) => {
+                        const key = dr.driverId ?? 'none'
+                        return (
+                          <Fragment key={key}>
+                            <tr
+                              className="cursor-pointer border-t border-border transition-colors hover:bg-muted/50"
+                              onClick={() => toggleExpanded(key)}
+                            >
+                              <td className="px-5 py-3 font-medium">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1.5 text-left"
+                                  aria-expanded={expanded.has(key)}
+                                  aria-label={`Ver desglose de ${dr.driverName}`}
+                                >
+                                  <Bike className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                  <span className="truncate">{dr.driverName}</span>
+                                  <ChevronDown
+                                    className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${
+                                      expanded.has(key) ? 'rotate-180' : ''
+                                    }`}
+                                  />
+                                </button>
+                              </td>
+                              <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
+                                {dr.count}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-3 text-right font-semibold tabular-nums">
+                                {formatEur(dr.totalEur)}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums text-muted-foreground">
+                                {formatEur(dr.commissionEur)}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-3 text-right font-bold tabular-nums text-amber-600">
+                                {formatEur(dr.netEur)}
+                              </td>
+                              <td className="px-5 py-3 text-right">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1.5 px-2.5"
+                                  disabled={pdfBusy === key || !dr.driverId}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    downloadPdf(dr)
+                                  }}
+                                  aria-label={`Descargar liquidación en PDF de ${dr.driverName}`}
+                                >
+                                  {pdfBusy === key ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <FileDown className="h-3.5 w-3.5" />
+                                  )}
+                                  PDF
+                                </Button>
+                              </td>
+                            </tr>
+                            {expanded.has(key) && (
+                              <tr className="border-t border-border/60 bg-muted/20">
+                                <td colSpan={6} className="px-5 py-4">
+                                  <DriverDayBreakdown dr={dr} month={month} />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -544,5 +639,212 @@ function CommissionCard() {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Desglose día a día de un repartidor (contenido expandido)           */
+/* ------------------------------------------------------------------ */
+
+interface DayGroup {
+  key: string
+  label: string
+  rows: BillingDriverDetail['deliveries']
+  grossEur: number
+  netEur: number
+}
+
+/** Agrupa los repartos de un repartidor por día de entrega. */
+function groupByDay(deliveries: BillingDriverDetail['deliveries']): DayGroup[] {
+  const map = new Map<string, DayGroup>()
+  for (const d of deliveries) {
+    const date = new Date(d.deliveredAt)
+    const key = date.toISOString().slice(0, 10)
+    let g = map.get(key)
+    if (!g) {
+      g = {
+        key,
+        label: date.toLocaleDateString('es-ES', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        }),
+        rows: [],
+        grossEur: 0,
+        netEur: 0,
+      }
+      map.set(key, g)
+    }
+    g.rows.push(d)
+    g.grossEur += d.grossEur
+    g.netEur += d.netEur
+  }
+  return Array.from(map.values())
+}
+
+function DriverDayBreakdown({ dr, month }: { dr: BillingDriverDetail; month: string }) {
+  const days = groupByDay(dr.deliveries)
+  return (
+    <div className="space-y-3">
+      {days.map((day) => (
+        <div key={day.key} className="overflow-hidden rounded-lg border border-border bg-card">
+          {/* Cabecera del día: fecha + subtotal */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-muted/60 px-3 py-2 sm:px-4">
+            <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:text-sm">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              <span>{day.label.charAt(0).toUpperCase() + day.label.slice(1)}</span>
+              <span className="font-normal normal-case">
+                · {day.rows.length} reparto{day.rows.length === 1 ? '' : 's'}
+              </span>
+            </p>
+            <p className="text-xs sm:text-sm">
+              <span className="font-semibold tabular-nums text-emerald-600">
+                {formatEur(day.grossEur)}
+              </span>{' '}
+              <span className="text-muted-foreground">
+                generado · <span className="font-bold tabular-nums text-amber-600">{formatEur(day.netEur)}</span> a
+                recibir
+              </span>
+            </p>
+          </div>
+          {/* Repartos del día */}
+          <div className="divide-y divide-border/70">
+            {day.rows.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-col gap-1 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    <span className="mr-1.5 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+                      {new Date(r.deliveredAt).toLocaleTimeString('es-ES', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    {' '}{r.restaurantName}
+                  </p>
+                  {r.dropoffAddress && (
+                    <p className="mt-0.5 flex min-w-0 items-start gap-1 text-xs text-muted-foreground">
+                      <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span className="truncate">{r.dropoffAddress}</span>
+                      {r.distanceKm != null && (
+                        <span className="shrink-0">
+                          {' '}
+                          ({r.distanceKm.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km)
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+                <p className="shrink-0 whitespace-nowrap text-sm sm:text-right">
+                  <span className="font-semibold tabular-nums text-emerald-600">
+                    {formatEur(r.grossEur)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {' '}
+                    − {formatEur(r.commissionEur)} ={' '}
+                  </span>
+                  <span className="font-bold tabular-nums text-amber-600">
+                    {formatEur(r.netEur)}
+                  </span>
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {/* Total del mes (cierra el desglose) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border-2 border-border bg-muted/40 px-3 py-2.5 sm:px-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Total de {monthLabel(month)}
+        </p>
+        <p className="text-sm">
+          <span className="font-bold tabular-nums text-emerald-600">{formatEur(dr.totalEur)}</span>
+          <span className="text-muted-foreground">
+            {' '}
+            generado − {formatEur(dr.commissionEur)} ={' '}
+          </span>
+          <span className="text-base font-bold tabular-nums text-amber-600">
+            {formatEur(dr.netEur)}
+          </span>
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Fila móvil de repartidor (expandible)                               */
+/* ------------------------------------------------------------------ */
+
+function DriverMobileRow({
+  dr,
+  month: monthKeyProp,
+  expanded,
+  onToggle,
+  onPdf,
+  pdfBusy,
+}: {
+  dr: BillingDriverDetail
+  month: string
+  expanded: boolean
+  onToggle: () => void
+  onPdf: () => void
+  pdfBusy: boolean
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors active:bg-muted/50"
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Bike className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{dr.driverName}</p>
+            <p className="text-xs text-muted-foreground">
+              {dr.count} reparto{dr.count === 1 ? '' : 's'} · generado{' '}
+              <span className="font-semibold text-foreground">{formatEur(dr.totalEur)}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="text-right">
+            <p className="text-sm font-bold leading-tight tabular-nums text-amber-600">
+              {formatEur(dr.netEur)}
+            </p>
+            <p className="text-[11px] leading-tight text-muted-foreground">a recibir</p>
+          </div>
+          <ChevronDown
+            className={`h-4 w-4 text-muted-foreground transition-transform ${
+              expanded ? 'rotate-180' : ''
+            }`}
+          />
+        </div>
+      </button>
+      {expanded && (
+        <div className="space-y-3 border-t border-border bg-muted/20 px-4 py-3">
+          <DriverDayBreakdown dr={dr} month={monthKeyProp} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-1.5"
+            disabled={pdfBusy || !dr.driverId}
+            onClick={onPdf}
+          >
+            {pdfBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileDown className="h-3.5 w-3.5" />
+            )}
+            Descargar liquidación PDF
+          </Button>
+        </div>
+      )}
+    </div>
   )
 }

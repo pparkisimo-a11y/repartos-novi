@@ -103,6 +103,27 @@ export interface BillingDriverRow {
   netEur: number
 }
 
+/** Detalle de un reparto entregado (desglose día a día del admin). */
+export interface BillingDeliveryDetail {
+  id: string
+  /** Fecha/hora de entrega (ISO). */
+  deliveredAt: string
+  restaurantName: string
+  dropoffAddress: string | null
+  distanceKm: number | null
+  /** Tarifa bruta del reparto. */
+  grossEur: number
+  /** Comisión descontada por la plataforma. */
+  commissionEur: number
+  /** Neto que suma a recibir el repartidor. */
+  netEur: number
+}
+
+/** Resumen global por repartidor con el detalle de sus repartos. */
+export interface BillingDriverDetail extends BillingDriverRow {
+  deliveries: BillingDeliveryDetail[]
+}
+
 export interface BillingRestaurantRow {
   restaurantId: string
   restaurantName: string
@@ -130,8 +151,8 @@ export interface BillingResponse {
     netEur: number
   }
   restaurants: BillingRestaurantRow[]
-  /** Resumen global por repartidor (todos los locales juntos). */
-  byDriver: BillingDriverRow[]
+  /** Resumen global por repartidor (todos los locales juntos) con detalle. */
+  byDriver: BillingDriverDetail[]
 }
 
 export interface Lead {
@@ -393,4 +414,9 @@ export const api = {
   // Liquidación mensual (admin): totales por local y por repartidor
   adminBilling: (month: string) =>
     request<BillingResponse>(`/api/admin/billing?month=${encodeURIComponent(month)}`),
+
+  // URL del PDF de liquidación de un repartidor (se abre/descarga con la
+  // cookie de sesión del admin; el navegador la envía automáticamente).
+  adminDriverBillingPdfUrl: (driverId: string, month: string) =>
+    `/api/admin/billing/${encodeURIComponent(driverId)}/pdf?month=${encodeURIComponent(month)}`,
 }
