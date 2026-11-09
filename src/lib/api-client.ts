@@ -449,4 +449,24 @@ export const api = {
   // cookie de sesión del admin; el navegador la envía automáticamente).
   adminDriverBillingPdfUrl: (driverId: string, period: BillingPeriodQuery) =>
     `/api/admin/billing/${encodeURIComponent(driverId)}/pdf?${billingParams(period)}`,
+
+  // Preferencias de notificaciones del usuario logueado (por tipo de aviso).
+  // El catálogo de claves por rol está en src/lib/notif-catalog.ts.
+  getNotifPrefs: () =>
+    request<{ prefs: NotifPrefs }>('/api/notifications/prefs'),
+
+  setNotifPrefs: (prefs: NotifPrefs) =>
+    request<{ prefs: NotifPrefs }>('/api/notifications/prefs', {
+      method: 'PUT',
+      body: JSON.stringify({ prefs }),
+    }),
+
+  // Notificación push de prueba al propio usuario (ver /api/push/test).
+  sendTestPush: () =>
+    request<{ sent: number; scheduled?: boolean }>('/api/push/test', {
+      method: 'POST',
+    }),
 }
+
+/** Preferencias de notificación: { clave del catálogo → activada sí/no }. */
+export type NotifPrefs = Record<string, boolean>

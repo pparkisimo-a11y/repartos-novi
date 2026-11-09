@@ -130,6 +130,24 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+// Preferencias de notificaciones por usuario y tipo de aviso. Cada perfil
+// (admin | driver | restaurant) decide qué tipos quiere recibir: se aplican
+// tanto a los avisos en la app (toasts/sonido en tiempo real) como a las
+// notificaciones push del dispositivo. Si no hay fila para un tipo, el valor
+// por defecto es "activado" (así no hace falta sembrar nada).
+model NotificationPref {
+  id        String   @id @default(cuid())
+  role      String // 'admin' | 'driver' | 'restaurant'
+  userId    String // Admin.id | Driver.id | Restaurant.id
+  key       String // clave del catálogo (NOTIF_CATALOG de src/lib/notification-prefs.ts)
+  enabled   Boolean
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([role, userId, key])
+  @@index([role, userId])
+}
+
 model Delivery {
   id           String     @id @default(cuid())
   restaurantId String

@@ -148,6 +148,8 @@ export async function POST(req: Request) {
 
   // El restaurante ve la tarifa real (lo que paga) — sin comisión.
   const dto = serializeDelivery(delivery, false, 0)
+  // El admin ve la tarifa real (vista completa)
+  const dtoForAdmin = serializeDelivery(delivery, true, 0)
 
   // Notify ONLY the current assignee (not all drivers at once).
   if (currentAssigneeId) {
@@ -157,6 +159,12 @@ export async function POST(req: Request) {
       payload: dto,
     })
   }
+  // Avisar también a los admins conectados (sala 'admin'): nueva solicitud
+  await realtimeEmit({
+    event: 'delivery:new',
+    room: 'admin',
+    payload: dtoForAdmin,
+  })
   // Also notify the restaurant's own room (other tabs) that a new active delivery exists
   await realtimeEmit({
     event: 'delivery:created',
@@ -168,7 +176,7 @@ export async function POST(req: Request) {
   const currentDriver = assignedDrivers.find((d) => d.id === currentAssigneeId)
   if (currentDriver) {
     await sendPush(
-      { role: 'driver', userId: currentDriver.id },
+      { role: 'driver', userId: currentDriver.id, type: 'new_order' },
       {
         title: 'Nuevo pedido',
         body: `${restaurant.name}${customerName ? ` — pedido para ${customerName}` : ''}`,
@@ -177,12 +185,12 @@ export async function POST(req: Request) {
     )
   }
 
-  // Notificar al admin: nueva solicitud de reparto
+  // Notificar al admin: nueva solicitud de reparto (respeta preferencias)
   const admins = await db.admin.findMany({ select: { id: true } })
   await Promise.all(
     admins.map((a) =>
       sendPush(
-        { role: 'admin', userId: a.id },
+        { role: 'admin', userId: a.id, type: 'new_request' },
         {
           title: 'Nuevo pedido',
           body: `${restaurant.name}${customerName ? ` — pedido para ${customerName}` : ''}`,

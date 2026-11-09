@@ -42,6 +42,8 @@ import {
 } from '@/components/shared/order-collapsible'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
+import { useNotifPrefs } from '@/hooks/use-notif-prefs'
+import { NotificationSettings } from '@/components/shared/notification-settings'
 import { PushBell } from '@/components/pwa/push-bell'
 import { formatEur, formatKm } from '@/lib/fees'
 import {
@@ -57,7 +59,7 @@ import {
 } from '@/lib/schedule'
 import { useNow } from '@/hooks/use-now'
 
-type View = 'inicio' | 'historial'
+type View = 'inicio' | 'historial' | 'notificaciones'
 
 export function RestaurantDashboard({
   user,
@@ -68,6 +70,7 @@ export function RestaurantDashboard({
 }) {
   const qc = useQueryClient()
   const { status, subscribe } = useSocket(user)
+  const { prefs } = useNotifPrefs(user)
   const [view, setView] = useState<View>('inicio')
   const [requestOpen, setRequestOpen] = useState(false)
   const [sending, setSending] = useState(false)
@@ -128,10 +131,17 @@ export function RestaurantDashboard({
         return { deliveries: rest }
       })
       qc.invalidateQueries({ queryKey: ['deliveries', 'restaurant', 'all'] })
-      if (d.status === 'ACCEPTED') toast.success('¡Repartidor en camino!', { description: 'Tu repartidor ha aceptado la solicitud.' })
-      if (d.status === 'PICKED_UP') toast.info('Pedido recogido', { description: 'El repartidor ha recogido el pedido.' })
-      if (d.status === 'DELIVERED') toast.success('¡Reparto completado!', { description: 'El repartidor ha confirmado la entrega.' })
-      if (d.status === 'REJECTED') toast.error('Solicitud rechazada', { description: 'El repartidor no pudo aceptar. Puedes solicitar de nuevo.' })
+      // Cada toast depende de su tipo de notificación (pestaña Notificaciones)
+      if (d.status === 'ACCEPTED' && prefs?.order_accepted !== false)
+        toast.success('¡Repartidor en camino!', { description: 'Tu repartidor ha aceptado la solicitud.' })
+      if (d.status === 'PICKED_UP' && prefs?.order_picked_up !== false)
+        toast.info('Pedido recogido', { description: 'El repartidor ha recogido el pedido.' })
+      if (d.status === 'DELIVERED' && prefs?.order_delivered !== false)
+        toast.success('¡Reparto completado!', { description: 'El repartidor ha confirmado la entrega.' })
+      if (d.status === 'REJECTED' && prefs?.order_rejected !== false)
+        toast.error('Solicitud rechazada', { description: 'El repartidor no pudo aceptar. Puedes solicitar de nuevo.' })
+      if (d.status === 'CANCELLED' && prefs?.order_cancelled !== false)
+        toast.info('Pedido cancelado', { description: 'El repartidor ha cancelado el reparto.' })
     }
     const onNew = (payload: unknown) => {
       const d = payload as DeliveryDTO
@@ -146,7 +156,7 @@ export function RestaurantDashboard({
       off1()
       off2()
     }
-  }, [subscribe, qc])
+  }, [subscribe, qc, prefs])
 
   async function handleRequest(customerName?: string) {
     setSending(true)
@@ -199,6 +209,7 @@ export function RestaurantDashboard({
   const navItems: NavItem[] = [
     { id: 'inicio', label: 'Inicio', icon: StoreIcon },
     { id: 'historial', label: 'Historial', icon: ClipboardList },
+    { id: 'notificaciones', label: 'Notificaciones', icon: Bell },
   ]
 
   // Horario negociado del local: ¿está abierto ahora?
@@ -337,6 +348,9 @@ export function RestaurantDashboard({
       )}
       {view === 'historial' && (
         <RestaurantHistory deliveries={allDeliveries} />
+      )}
+      {view === 'notificaciones' && (
+        <NotificationSettings role="restaurant" userId={user.id} />
       )}
     </AppShell>
   )

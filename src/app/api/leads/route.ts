@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createLead } from '@/lib/admin-leads'
+import { realtimeEmit } from '@/lib/realtime'
 
 // Simple in-memory rate limit: max 5 submissions per IP per 10 minutes.
 const WINDOW_MS = 10 * 60 * 1000
@@ -36,6 +37,18 @@ export async function POST(req: Request) {
     if (!res.ok) {
       return NextResponse.json({ error: res.error }, { status: 400 })
     }
+    // Avisar a los admins conectados en tiempo real (antes tocaba esperar al
+    // refresco de 60 s de la pestaña Solicitudes). El toast del admin respeta
+    // su preferencia "new_lead".
+    await realtimeEmit({
+      event: 'lead:new',
+      room: 'admin',
+      payload: {
+        restaurantName: res.lead.restaurantName,
+        contactName: res.lead.contactName ?? null,
+        phone: res.lead.phone ?? null,
+      },
+    })
     return NextResponse.json({ ok: true, lead: res.lead }, { status: 201 })
   } catch (err) {
     console.error('[leads:POST]', err)

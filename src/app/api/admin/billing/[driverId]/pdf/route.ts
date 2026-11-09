@@ -238,7 +238,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
 
     const periodTitle =
       mode === 'custom'
-        ? `${fmtDayShort(from)} ${fmtTime(from)} → ${fmtDayShort(to)} ${fmtTime(to)}`
+        ? `${fmtDayShort(from)} ${fmtTime(from)} – ${fmtDayShort(to)} ${fmtTime(to)}`
         : monthLabel(year, month)
     const periodDetail =
       mode === 'custom'
@@ -304,7 +304,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
     if (mode === 'custom') {
       textRight('Periodo personalizado', PAGE_W - MARGIN - 16, y - 26, 11, bold, rgb(1, 1, 1))
       textRight(
-        `${fmtDayShort(from)} ${fmtTime(from)} → ${fmtDayShort(to)} ${fmtTime(to)}`,
+        `${fmtDayShort(from)} ${fmtTime(from)} – ${fmtDayShort(to)} ${fmtTime(to)}`,
         PAGE_W - MARGIN - 16,
         y - 44,
         8.5,
@@ -378,7 +378,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       comR: MARGIN + 443, // derecha comisión
       netR: PAGE_W - MARGIN - 10, // derecha neto
     }
-    const addrMax = C.kmR - C.addr - 12
 
     /** Fila de cabecera con las etiquetas de columna. */
     const drawColHeader = () => {
@@ -414,17 +413,29 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       y -= 17 + 9 // primera fila 9pt por debajo de la banda
     }
 
+    /** Acorta un texto con "..." final para que quepa en maxPt puntos.
+     *  (Se mide con los puntos incluidos para nunca pasarse del límite.) */
+    const fitText = (s: string, maxPt: number, size: number, f: PDFFont): string => {
+      if (f.widthOfTextAtSize(sane(s), size) <= maxPt) return s
+      let out = s
+      while (out.length > 3 && f.widthOfTextAtSize(sane(out) + '...', size) > maxPt) {
+        out = out.slice(0, -1)
+      }
+      return out.trimEnd() + '...'
+    }
+
     const drawRow = (r: Row) => {
       text(fmtTime(r.deliveredAt), C.hora, y, 9, font, MUTED)
-      text(r.restaurantName, C.rest, y, 9.5, bold)
-      // Dirección truncada al ancho disponible
-      let addr = r.dropoffAddress ?? '—'
-      while (addr.length > 3 && font.widthOfTextAtSize(addr, 8.5) > addrMax) {
-        addr = addr.slice(0, -2)
-      }
-      if (addr !== (r.dropoffAddress ?? '—')) addr += '...'
-      text(addr, C.addr, y, 8.5, font, MUTED)
-      if (r.distanceKm != null) textRight(fmtKm(r.distanceKm), C.kmR, y, 8.5, font, MUTED)
+      // Restaurante: nunca puede invadir la columna DIRECCIÓN
+      text(fitText(r.restaurantName, C.addr - C.rest - 10, 9.5, bold), C.rest, y, 9.5, bold)
+      // Dirección: se recorta al hueco REAL que deja el texto de KM en esta
+      // fila (KM se alinea a la derecha, así que su borde izquierdo varía —
+      // medirlo evita que una dirección larga se meta dentro de los km).
+      const kmText = r.distanceKm != null ? fmtKm(r.distanceKm) : null
+      const kmW = kmText ? font.widthOfTextAtSize(sane(kmText), 8.5) : 0
+      const addrMaxRow = C.kmR - kmW - 12 - C.addr
+      text(fitText(r.dropoffAddress ?? '—', addrMaxRow, 8.5, font), C.addr, y, 8.5, font, MUTED)
+      if (kmText) textRight(kmText, C.kmR, y, 8.5, font, MUTED)
       textRight(fmtEur(r.gross), C.feeR, y, 9.5, bold, ACCENT)
       textRight(`-${fmtEur(r.commission)}`, C.comR, y, 8.5, font, MUTED)
       textRight(fmtEur(r.net), C.netR, y, 9.5, bold, AMBER)
@@ -480,8 +491,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ driverId: strin
       }
 
       // --- Totales del periodo ---
-      breakPage(84)
-      y -= 4
+      // (la regla verde queda a la misma distancia del subtotal de arriba
+      // que las cabeceras de día, para mantener el ritmo vertical)
+      breakPage(80)
       line(y, ACCENT, 1.5)
       y -= 20
       text(mode === 'custom' ? 'Total del periodo' : 'Total del mes', MARGIN, y, 11, bold)

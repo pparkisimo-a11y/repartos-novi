@@ -63,6 +63,8 @@ async function main() {
         socket.data.role = 'restaurant'
         socket.data.restaurantId = data.restaurantId
       } else if (data.role === 'admin' && data.adminId) {
+        // Sala global de admins (nuevas solicitudes/leads) + sala personal
+        socket.join('admin')
         socket.join(`admin:${data.adminId}`)
         socket.data.role = 'admin'
       }

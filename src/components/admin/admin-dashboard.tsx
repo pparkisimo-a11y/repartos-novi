@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   LayoutDashboard,
   UserPlus,
@@ -20,6 +21,7 @@ import {
   Receipt,
   PiggyBank,
   Wallet,
+  Bell,
 } from 'lucide-react'
 import { PushBell } from '@/components/pwa/push-bell'
 import { Card, CardContent } from '@/components/ui/card'
@@ -33,10 +35,21 @@ import { BillingView } from '@/components/admin/billing-view'
 import { HistoryView } from '@/components/shared/history-view'
 import { StatsView } from '@/components/shared/stats-view'
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
+import { useSocket } from '@/hooks/use-socket'
+import { useNotifPrefs } from '@/hooks/use-notif-prefs'
+import { NotificationSettings } from '@/components/shared/notification-settings'
 import { formatTime, formatDuration } from '@/lib/format'
 import { formatEur } from '@/lib/fees'
 
-type View = 'resumen' | 'solicitudes' | 'restaurantes' | 'repartidores' | 'liquidacion' | 'historial' | 'estadisticas'
+type View =
+  | 'resumen'
+  | 'solicitudes'
+  | 'restaurantes'
+  | 'repartidores'
+  | 'liquidacion'
+  | 'historial'
+  | 'estadisticas'
+  | 'notificaciones'
 
 /**
  * Panel de administración: gestión de locales captados (leads), restaurantes,
@@ -50,6 +63,9 @@ export function AdminDashboard({
   user: Extract<AdminUser, { role: 'admin' }>
   onLogout: () => void
 }) {
+  const qc = useQueryClient()
+  const { subscribe } = useSocket(user)
+  const { prefs } = useNotifPrefs(user)
   const [view, setView] = useState<View>('resumen')
 
   const { data: leadsData } = useQuery({
@@ -66,6 +82,56 @@ export function AdminDashboard({
   })
   const driverCount = driversData?.drivers.length || 0
 
+  // --- Tiempo real (sala 'admin'): nueva solicitud, cambio de estado de un
+  //     pedido o nuevo local interesado. Los toasts respetan las preferencias
+  //     de la pestaña Notificaciones; los datos se refrescan siempre.
+  useEffect(() => {
+    const onNew = (payload: unknown) => {
+      const d = payload as DeliveryDTO
+      qc.invalidateQueries({ queryKey: ['deliveries', 'admin'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+      if (prefs?.new_request !== false) {
+        toast.success('Nueva solicitud de reparto', {
+          description: `${d.restaurantName}${d.customerName ? ` — pedido para ${d.customerName}` : ''}`,
+        })
+      }
+    }
+    const onUpdate = (payload: unknown) => {
+      const d = payload as DeliveryDTO
+      qc.invalidateQueries({ queryKey: ['deliveries', 'admin'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+      if (
+        ['ACCEPTED', 'PICKED_UP', 'DELIVERED'].includes(d.status) &&
+        prefs?.order_status !== false
+      ) {
+        const label =
+          d.status === 'ACCEPTED'
+            ? 'Pedido aceptado'
+            : d.status === 'PICKED_UP'
+              ? 'Pedido recogido'
+              : 'Pedido entregado'
+        toast.info(label, {
+          description: `${d.driverName || 'Repartidor'} · ${d.restaurantName}`,
+        })
+      }
+    }
+    const onLead = (payload: unknown) => {
+      const l = payload as { restaurantName?: string }
+      qc.invalidateQueries({ queryKey: ['admin', 'leads'] })
+      if (prefs?.new_lead !== false) {
+        toast.success('Nuevo local interesado', {
+          description: l?.restaurantName || 'Revisa la pestaña Solicitudes',
+        })
+      }
+    }
+    const offs = [
+      subscribe('delivery:new', onNew),
+      subscribe('delivery:update', onUpdate),
+      subscribe('lead:new', onLead),
+    ]
+    return () => offs.forEach((off) => off())
+  }, [subscribe, qc, prefs])
+
   const navItems: NavItem[] = [
     { id: 'resumen', label: 'Resumen', icon: LayoutDashboard },
     { id: 'solicitudes', label: 'Solicitudes', icon: UserPlus, badge: pendingLeads },
@@ -74,6 +140,7 @@ export function AdminDashboard({
     { id: 'liquidacion', label: 'Liquidación', icon: Receipt },
     { id: 'historial', label: 'Historial', icon: ClipboardList },
     { id: 'estadisticas', label: 'Estadísticas', icon: BarChart3 },
+    { id: 'notificaciones', label: 'Notificaciones', icon: Bell },
   ]
 
   const header = (
@@ -108,6 +175,7 @@ export function AdminDashboard({
       {view === 'liquidacion' && <BillingView />}
       {view === 'historial' && <HistoryView fixedScope="all" />}
       {view === 'estadisticas' && <StatsView />}
+      {view === 'notificaciones' && <NotificationSettings role="admin" userId={user.id} />}
     </AppShell>
   )
 }

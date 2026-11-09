@@ -77,7 +77,7 @@ export async function PATCH(
     // Avisar al repartidor original (si lo había) de que le han quitado el pedido
     if (wasAccepted && previousDriverId && previousDriverId !== session.id) {
       await sendPush(
-        { role: 'driver', userId: previousDriverId },
+        { role: 'driver', userId: previousDriverId, type: 'order_taken' },
         {
           title: 'Te han quitado el pedido',
           body: `${session.name} se ha hecho cargo del pedido de ${delivery.restaurant.name}.`,
@@ -169,7 +169,7 @@ export async function PATCH(
         )
         await realtimeEmit({ event: 'delivery:new', room: `driver:${nextAssigneeId}`, payload: nextDto })
         await sendPush(
-          { role: 'driver', userId: nextAssigneeId },
+          { role: 'driver', userId: nextAssigneeId, type: 'new_order' },
           {
             title: 'Nuevo pedido',
             body: `${delivery.restaurant.name}${delivery.customerName ? ` — pedido para ${delivery.customerName}` : ''}`,
@@ -281,40 +281,57 @@ export async function PATCH(
     room: 'driver',
     payload: dtoForDriver,
   })
+  // Avisar a los admins conectados de los cambios de estado del repartidor
+  // (aceptado / recogido / entregado) para que su panel se refresque al momento
+  if (session.role === 'driver' && ['ACCEPTED', 'PICKED_UP', 'DELIVERED'].includes(nextStatus)) {
+    await realtimeEmit({
+      event: 'delivery:update',
+      room: 'admin',
+      payload: serializeDelivery(updated, true, 0),
+    })
+  }
 
-  // --- Web Push (avisos con la app cerrada) ---
+  // --- Web Push (avisos con la app cerrada; cada uno respeta las
+  //     preferencias del destinatario vía sendPush → isNotifEnabled) ---
   const tag = `delivery-${updated.id}`
   if (session.role === 'driver') {
     // El repartidor actualizó el estado → avisar al restaurante
-    const restaurantPush: Record<string, { title: string; body: string }> = {
+    // (clave de preferencia según el estado del pedido)
+    const restaurantPush: Record<string, { title: string; body: string; type: string }> = {
       ACCEPTED: {
         title: 'Pedido aceptado',
         body: `${session.name} va de camino a recoger el pedido.`,
+        type: 'order_accepted',
       },
       PICKED_UP: {
         title: 'Pedido recogido',
         body: updated.fee != null
           ? `${session.name} ha recogido el pedido. Tarifa: ${updated.fee.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`
           : `${session.name} ha recogido el pedido.`,
+        type: 'order_picked_up',
       },
       DELIVERED: {
         title: 'Pedido entregado',
         body: `${session.name} ha confirmado la entrega.`,
+        type: 'order_delivered',
       },
       REJECTED: {
         title: 'Pedido rechazado',
         body: 'El repartidor no ha podido aceptar. Puedes volver a solicitarlo.',
+        type: 'order_rejected',
       },
       CANCELLED: {
         title: 'Pedido cancelado',
         body: `${session.name} ha cancelado el reparto.`,
+        type: 'order_cancelled',
       },
     }
     const push = restaurantPush[nextStatus]
     if (push) {
+      const { type, ...body } = push
       await sendPush(
-        { role: 'restaurant', userId: updated.restaurantId },
-        { ...push, tag },
+        { role: 'restaurant', userId: updated.restaurantId, type },
+        { ...body, tag },
       )
     }
 
@@ -338,7 +355,7 @@ export async function PATCH(
       const admins = await db.admin.findMany({ select: { id: true } })
       await Promise.all(
         admins.map((a) =>
-          sendPush({ role: 'admin', userId: a.id }, { ...adminNotif, tag }),
+          sendPush({ role: 'admin', userId: a.id, type: 'order_status' }, { ...adminNotif, tag }),
         ),
       )
     }
@@ -347,7 +364,7 @@ export async function PATCH(
     await Promise.all(
       assignedDriverIds.map((driverId) =>
         sendPush(
-          { role: 'driver', userId: driverId },
+          { role: 'driver', userId: driverId, type: 'order_cancelled' },
           {
             title: 'Pedido cancelado',
             body: `${updated.restaurant.name} ha cancelado el pedido.`,

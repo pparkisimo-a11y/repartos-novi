@@ -6,6 +6,8 @@
 // the service worker + Web Push — this is the piece that makes them arrive.
 import webpush from 'web-push'
 import { db } from '@/lib/db'
+import { isNotifEnabled } from '@/lib/notification-prefs'
+import type { NotifRole } from '@/lib/notif-catalog'
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
@@ -34,6 +36,15 @@ export function hasVapidKeys(): boolean {
   return Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
 }
 
+/** Destinatario del push. `type` es la clave del catálogo de preferencias
+ *  (src/lib/notif-catalog.ts): si el usuario la tiene desactivada, no se
+ *  envía nada. */
+export interface PushTarget {
+  role: 'driver' | 'restaurant' | 'admin'
+  userId: string
+  type?: string
+}
+
 /** Number of devices subscribed for a given role/userId. */
 export async function countPushSubscriptions(
   target: { role: 'driver' | 'restaurant' | 'admin'; userId: string },
@@ -46,12 +57,20 @@ export async function countPushSubscriptions(
 /**
  * Send a push notification to every device subscribed for the given
  * role/userId. Best-effort: expired subscriptions (404/410) are pruned.
- * Returns the number of notifications delivered.
+ * Si el destinatario tiene desactivado el tipo de notificación (`type`),
+ * no se envía nada. Returns the number of notifications delivered.
  */
 export async function sendPush(
-  target: { role: 'driver' | 'restaurant' | 'admin'; userId: string },
+  target: PushTarget,
   payload: PushPayload,
 ): Promise<number> {
+  if (
+    target.type &&
+    !(await isNotifEnabled(target.role as NotifRole, target.userId, target.type))
+  ) {
+    return 0 // el usuario desactivó este tipo de aviso en su panel
+  }
+
   if (!hasVapidKeys()) {
     console.warn('[push] VAPID keys not configured; skipping push')
     return 0

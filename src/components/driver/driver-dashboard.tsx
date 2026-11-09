@@ -50,11 +50,13 @@ import {
 import { AppShell, type NavItem } from '@/components/layout/app-shell'
 import { useSocket } from '@/hooks/use-socket'
 import { useNow } from '@/hooks/use-now'
+import { useNotifPrefs } from '@/hooks/use-notif-prefs'
+import { NotificationSettings } from '@/components/shared/notification-settings'
 import { formatTime } from '@/lib/format'
 import { PushBell } from '@/components/pwa/push-bell'
 import { feeForDistanceKm, haversineKm, formatEur, formatKm } from '@/lib/fees'
 
-type View = 'pedidos' | 'historial' | 'estadisticas'
+type View = 'pedidos' | 'historial' | 'estadisticas' | 'notificaciones'
 
 export function DriverDashboard({
   user,
@@ -65,6 +67,7 @@ export function DriverDashboard({
 }) {
   const qc = useQueryClient()
   const { status, subscribe } = useSocket(user)
+  const { prefs } = useNotifPrefs(user)
   const beepRef = useRef<AudioContext | null>(null)
   const [view, setView] = useState<View>('pedidos')
   const [available, setAvailable] = useState(true)
@@ -136,8 +139,10 @@ export function DriverDashboard({
           deliveries: [d, ...(old?.deliveries.filter((x) => x.id !== d.id) || [])],
         }))
         qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
-        if (available) {
-          playBeep()
+        // Aviso de nuevo pedido: solo si "Nuevos pedidos" está activado.
+        // El pitido, además, depende de "Sonido de nuevo pedido".
+        if (available && prefs?.new_order !== false) {
+          if (prefs?.sound_alert !== false) playBeep()
           toast.success('Nuevo pedido', {
             description: `${d.restaurantName}${d.customerName ? ` — pedido para ${d.customerName}` : ''}`,
             duration: 8000,
@@ -170,7 +175,11 @@ export function DriverDashboard({
         qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'active'] })
         qc.invalidateQueries({ queryKey: ['deliveries', 'driver', 'recent'] })
       }
-      if (d.status === 'CANCELLED' && (d.assignedDriverIds || []).includes(user.id)) {
+      if (
+        d.status === 'CANCELLED' &&
+        (d.assignedDriverIds || []).includes(user.id) &&
+        prefs?.order_cancelled !== false
+      ) {
         toast.info('Solicitud cancelada', { description: `${d.restaurantName} canceló el reparto.` })
       }
     }
@@ -180,7 +189,7 @@ export function DriverDashboard({
       off1()
       off2()
     }
-  }, [subscribe, qc, available, user.id, user.isSuperDriver])
+  }, [subscribe, qc, available, user.id, user.isSuperDriver, prefs])
 
   const deliveries = data?.deliveries || []
   // Mis pedidos = los de mis restaurantes (isMine). El resto van a la sección
@@ -247,6 +256,7 @@ export function DriverDashboard({
     { id: 'pedidos', label: 'Mis pedidos', icon: Package, badge: pending.length },
     { id: 'historial', label: 'Historial', icon: ClipboardList },
     { id: 'estadisticas', label: 'Estadísticas', icon: BarChart3 },
+    { id: 'notificaciones', label: 'Notificaciones', icon: Bell },
   ]
 
   const header = (
@@ -296,6 +306,7 @@ export function DriverDashboard({
       )}
       {view === 'historial' && <HistoryView />}
       {view === 'estadisticas' && <StatsView />}
+      {view === 'notificaciones' && <NotificationSettings role="driver" userId={user.id} />}
 
       {/* Diálogo de recogida: nombre + dirección → tarifa por distancia */}
       <PickupDialog
