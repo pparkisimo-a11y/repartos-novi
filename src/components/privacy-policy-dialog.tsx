@@ -10,14 +10,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
  * tokens de notificaciones push, cookie técnica de sesión) y los
  * proveedores implicados (Render, Supabase, Mapbox, Google Routes).
  *
- * NOTA: la sección "Responsable" usa el nombre de la marca. Cuando el
- * titular facilite su nombre fiscal, NIF y domicilio, sustituir los
- * valores de RESPONSABLE_* más abajo.
+ * NOTA LEGAL: no hay sociedad detrás de la app. El titular del servicio
+ * es una persona física (el promotor que gestiona el reparto) y, a este
+ * nivel, el RGPD se satisface identificando el servicio y ofreciendo un
+ * canal de contacto real. NO hace falta nombre fiscal, NIF ni domicilio
+ * mientras el servicio no se formalice (p. ej. alta de autónomo); ese día,
+ * basta poner el nombre del titular y su email en RESPONSABLE_NAME /
+ * RESPONSABLE_CONTACT.
  */
 
-// --- Datos del responsable (completar cuando el titular los facilite) ---
+// --- Identificación del responsable ---
 const RESPONSABLE_NAME = 'Repartos NOVI'
-const RESPONSABLE_CONTACT = 'el formulario de contacto de esta misma aplicación'
+const RESPONSABLE_CONTACT =
+  'el formulario de contacto de esta misma aplicación (botón «Escríbenos», bajo la pantalla de acceso)'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -44,15 +49,18 @@ export function PrivacyPolicyDialog({
           <DialogTitle>Política de privacidad</DialogTitle>
         </DialogHeader>
         <div className="space-y-5 pb-2">
+          {/* Fecha fija de la última revisión del texto: actualizar al modificar. */}
           <p className="text-xs text-muted-foreground">
-            Última actualización: {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long' })}
+            Última actualización: noviembre de 2026
           </p>
 
           <Section title="1. Responsable del tratamiento">
             <p>
-              {RESPONSABLE_NAME}, titular y operador de esta aplicación (en adelante, «la
-              aplicación»). Para cualquier cuestión sobre el tratamiento de tus datos
-              puedes escribir a través de {RESPONSABLE_CONTACT}.
+              El responsable del tratamiento es el titular y operador del servicio{' '}
+              {RESPONSABLE_NAME}, que lo gestiona de forma independiente como persona
+              física (no existe una sociedad detrás de la aplicación). Para cualquier
+              cuestión sobre el tratamiento de tus datos puedes escribirnos mediante{' '}
+              {RESPONSABLE_CONTACT}.
             </p>
           </Section>
 
@@ -160,7 +168,7 @@ export function PrivacyPolicyDialog({
           <Section title="10. Tus derechos">
             <p>
               Puedes ejercer tus derechos de acceso, rectificación, supresión, oposición,
-              limitación del tratamiento y portabilidad escribiendo a través de{' '}
+              limitación del tratamiento y portabilidad escribiéndonos mediante{' '}
               {RESPONSABLE_CONTACT}. También puedes reclamar ante la Agencia Española de
               Protección de Datos (aepd.es).
             </p>
